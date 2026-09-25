@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Avaliação de Eventos SCTI01</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background-color:#f4f6F9;color:#333;margin:0;padding:20px}
+.container{max-width:1100px;margin:0 auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,.05)}
+h1{color:#1b365d;font-size:24px;margin-top:0;border-bottom:3px solid #1b365d;padding-bottom:10px}
+h2{color:#2c3e50;font-size:18px;margin-top:25px;border-left:4px solid #1b365d;padding-left:10px}
+h3{color:#475569;font-size:15px;margin:18px 0 0;padding-left:14px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
+.tab{background:#e2e8f0;color:#475569;border:none;padding:8px 14px;font-size:13px;font-weight:bold;border-radius:6px;cursor:pointer;transition:background .2s}
+.tab:hover{background:#cbd5e1}
+.tab.active{background:#1b365d;color:#fff}
+.instruction{font-size:14px;color:#666;margin-bottom:20px}
+.sync-section{background-color:#ebf8ff;border:1px solid #bee3f8;padding:20px;border-radius:8px;margin-bottom:25px}
+.preset-container{display:flex;gap:12px;margin-bottom:15px;flex-wrap:wrap}
+.preset-box{flex:1;min-width:280px;background:#fff;border:1px solid #cbd5e1;padding:15px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.02)}
+.preset-title{font-weight:bold;color:#1b365d;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.sync-input-group{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.sync-input{flex:1;min-width:250px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px}
+.btn{background-color:#1b365d;color:#fff;border:none;padding:10px 20px;font-size:14px;font-weight:bold;border-radius:6px;cursor:pointer;transition:background .2s}
+.btn:hover{background-color:#2c5282}
+.btn-success{background-color:#2f855a}.btn-success:hover{background-color:#276749}
+.btn-secondary{background-color:#4a5568}.btn-secondary:hover{background-color:#2d3748}
+.btn-danger{background-color:#e53e3e}.btn-danger:hover{background-color:#c53030}
+.btn-small{padding:6px 12px;font-size:12px}
+table{width:100%;border-collapse:collapse;margin-top:10px;margin-bottom:30px;font-size:14px}
+th{background-color:#1b365d;color:#fff;padding:12px;text-align:left;font-weight:600}
+td{padding:12px;border-bottom:1px solid #e2e8f0;vertical-align:middle}
+tr:nth-child(even) td{background-color:#f8fafc}
+.rank-badge{padding:4px 8px;border-radius:4px;font-weight:bold}
+.rank-1{background-color:#fef3c7;color:#92400e}
+.rank-2{background-color:#e2e8f0;color:#475569}
+.rank-3{background-color:#ffedd5;color:#9a3412}
+.evaluator-name{display:block;font-size:11px;color:#64748b;margin-top:3px;font-style:italic}
+.pending{color:#94a3b8;font-size:12px;font-style:italic}
+.indicator{font-size:11px;font-weight:bold;padding:2px 6px;border-radius:4px}
+.ind-off{background-color:#e2e8f0;color:#475569}
+.ind-on{background-color:#c6f6d5;color:#22543d}
+.actions-bar{margin-bottom:15px;text-align:right}
+.status-badge{font-size:13px;font-weight:bold;color:#2c5282;margin-top:12px;display:block;background:#fff;padding:8px;border-radius:6px;border:1px solid #e2e8f0}
+.empty-message{text-align:center;padding:30px;color:#94a3b8;font-style:italic;border:1px dashed #e2e8f0;border-radius:6px;margin-bottom:30px}
+@media print{.no-print{display:none}body{background:#fff;padding:0}.container{box-shadow:none;padding:0}}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+
+<div class="container" id="capture-area">
+    <h1>Sistema de Apuração e Rankings Dinâmicos de Eventos SCTI01</h1>
+
+    <div class="instruction no-print">
+        <strong>Modo de Uso:</strong> Use os botões rápidos para carregar os links salvos ou cole novos links diretamente nos campos abaixo. SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador).
+    </div>
+
+    <div class="sync-section no-print">
+        <div class="preset-container" id="presets"></div>
+        <div style="text-align: center; margin-top: 15px;">
+            <button class="btn" style="background-color: #2b6cb0;" onclick="iniciarSincronizacaoGeral()">🔄 Iniciar Sincronização Live (Todos)</button>
+        </div>
+        <div class="status-badge" id="sync-status">Status: Aguardando definição de links.</div>
+    </div>
+
+    <div class="actions-bar no-print">
+        <button class="btn btn-danger" onclick="limparDados()" style="float: left;">🗑️ Interromper e Limpar</button>
+        <button class="btn btn-secondary" onclick="exportRankingToImage()">📸 Salvar Ranking como Imagem</button>
+        <div style="clear: both;"></div>
+    </div>
+
+    <div id="rankings-container"></div>
+</div>
+
+<script>
+    // Links salvos. Para SEMCITEC, FECEG e MOSTRA, preencha aqui os links das planilhas (e "x" = dados extras, opcional).
+    const LINKS_SALVOS = {
+        hackathon: "https://docs.google.com/spreadsheets/d/1v0oT2empOMtpdApSkRO36MhQzt2j7yBwYOzGMrQ30Eo/edit?resourcekey=&gid=840451273#gid=840451273",
+        pitch: "https://docs.google.com/spreadsheets/d/1VUVeiy26w0kyEB-FGUBSUwDzYx5sNoARq73qiT-CaSQ/edit?resourcekey=&gid=1199274455#gid=1199274455",
+        semcitec: "https://docs.google.com/spreadsheets/d/14OYmkg0JKb7yRqQHkkVTKIK-Hq-Mp2rmCqXVOB1I2xM/edit?usp=sharing", semcitecx: "",
+        feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "",
+        mostra: "https://docs.google.com/spreadsheets/d/1Lqffnqykfma5dsO8ZSB-aRShR8YOPqgUDQnpl2FOQmg/edit?usp=sharing", mostrax: ""
+    };
+
+    // proj = true: núcleo com cálculo por projeto (top 3 avaliações) e rankings por modalidade/eixo
+    const NUC = {
+        hackathon: { nome: "🏆 Planilha Hackathon", ttl: "🏆 Ranking Final — Hackathon", msg: "das Equipes do Hackathon" },
+        pitch:     { nome: "🚀 Planilha Pitch4GRU", ttl: "🚀 Ranking Final — Pitch4GRU (Startups)", msg: "das Startups do Pitch4GRU" },
+        semcitec:  { nome: "📚 Planilha SEMCITEC", ttl: "📚 Ranking Final — SEMCITEC", msg: "dos Projetos do SEMCITEC", proj: true },
+        feceg:     { nome: "🔬 Planilha FECEG", ttl: "🔬 Ranking Final — FECEG", msg: "dos Projetos da FECEG", proj: true },
+        mostra:    { nome: "🎨 Planilha MOSTRA", ttl: "🎨 Ranking Final — Mostra de Economia Criativa", msg: "dos Projetos da Mostra", proj: true }
+    };
+
+    let dadosGlobais = {};
+    let intervaloSync = null;
+    let urlsExport = {};
+    let abaAtiva = {}, abasRender = {};
+    const TOP_N = 10;
+
+    document.getElementById('presets').innerHTML = Object.keys(NUC).map(k => `
+        <div class="preset-box">
+            <div class="preset-title"><span>${NUC[k].nome}</span><span id="ind-${k}" class="indicator ind-off">Desconectado</span></div>
+            <button class="btn btn-small btn-success" onclick="carregarLinkSalvo('${k}')">📋 Usar Link Salvo</button>
+            <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
+            ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
+        </div>`).join('');
+
+    limparEstado();
+    renderizarTabelas();
+
+    function limparEstado() {
+        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], inst: [], orient: [], dup: [], inc: [] });
+        urlsExport = {};
+    }
+
+    function setInd(k, on, txt) {
+        const el = document.getElementById('ind-' + k);
+        el.className = "indicator " + (on ? "ind-on" : "ind-off");
+        el.innerText = txt;
+    }
+
+    function carregarLinkSalvo(k) {
+        if (!LINKS_SALVOS[k]) { alert("Ainda não há link salvo para este núcleo. Cole o link no campo ou preencha LINKS_SALVOS no código."); return; }
+        document.getElementById('url-' + k).value = LINKS_SALVOS[k];
+        const ext = document.getElementById('ext-' + k);
+        if (ext && LINKS_SALVOS[k + 'x']) ext.value = LINKS_SALVOS[k + 'x'];
+        setInd(k, true, "Link Pronto");
+    }
+
+    function extrairIdSheet(url) {
+        const m = (url || "").match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return m && m[1] ? m[1] : "";
+    }
+    const urlExport = url => { const id = extrairIdSheet(url); return id ? `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx` : ""; };
+    const baixar = url => fetch(url).then(r => r.arrayBuffer()).then(b => XLSX.read(new Uint8Array(b), { type: 'array' }));
+
+    function iniciarSincronizacaoGeral() {
+        urlsExport = {};
+        Object.keys(NUC).forEach(k => {
+            const u = urlExport(document.getElementById('url-' + k).value.trim());
+            if (u) urlsExport[k] = u;
+            const ext = document.getElementById('ext-' + k);
+            if (ext && urlExport(ext.value.trim())) urlsExport[k + 'x'] = urlExport(ext.value.trim());
+        });
+        if (!Object.keys(NUC).some(k => urlsExport[k])) {
+            alert("Por favor, carregue ou cole pelo menos um link de planilha para sincronizar!");
+            return;
+        }
+        if (intervaloSync) clearInterval(intervaloSync);
+        document.getElementById('sync-status').innerHTML = "⏳ Conectando aos servidores do Google Sheets...";
+        executarCicloSincronizacao();
+        intervaloSync = setInterval(executarCicloSincronizacao, 5000);
+    }
+
+    function executarCicloSincronizacao() {
+        const promessas = Object.keys(NUC).filter(k => urlsExport[k]).map(k =>
+            baixar(urlsExport[k]).then(wb => {
+                if (!NUC[k].proj) return { geral: processarAbaEspecifica(wb), grupos: [], ign: 0 };
+                const extP = urlsExport[k + 'x'] ? baixar(urlsExport[k + 'x']).then(lerExtras).catch(() => ({})) : Promise.resolve().then(() => lerExtras(wb));
+                return extP.then(ext => processarProjetos(wb, k, ext));
+            }).then(res => {
+                dadosGlobais[k] = res;
+                setInd(k, true, "🔴 Sincronizando Live");
+            }).catch(() => setInd(k, false, "⚠️ Erro de Conexão"))
+        );
+        Promise.all(promessas).then(() => {
+            document.getElementById('sync-status').innerHTML = `🟢 Rankings sincronizados e atualizados com sucesso às ${new Date().toLocaleTimeString()}!`;
+            renderizarTabelas();
+        });
+    }
+
+    // ===== Hackathon e Pitch4GRU (lógica original mantida) =====
+    function processarAbaEspecifica(workbook) {
+        let lista = [];
+        workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            if (!worksheet || !worksheet['!ref']) return;
+            const range = XLSX.utils.decode_range(worksheet['!ref']);
+            let agrupado = {};
+            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                let cEquipe = worksheet[XLSX.utils.encode_cell({ r: R, c: 2 })];
+                let cAval = worksheet[XLSX.utils.encode_cell({ r: R, c: 1 })];
+                if (!cEquipe || !cEquipe.v) continue;
+                let nomeEquipe = String(cEquipe.v).trim();
+                let avaliador = cAval && cAval.v ? String(cAval.v).trim() : "Desconhecido";
+                let soma = 0, contadas = 0;
+                for (let C = 3; C <= range.e.c; ++C) {
+                    let cNota = worksheet[XLSX.utils.encode_cell({ r: R, c: C })];
+                    if (cNota && cNota.v !== undefined && cNota.v !== null) {
+                        let val = parseFloat(String(cNota.v).trim());
+                        if (!isNaN(val) && val >= 1 && val <= 10 && contadas < 5) { soma += val; contadas++; }
+                    }
+                }
+                if (!agrupado[nomeEquipe]) agrupado[nomeEquipe] = [];
+                agrupado[nomeEquipe].push({ nota: soma, avaliador });
+            }
+            lista = lista.concat(estruturarColunasNotas(agrupado));
+        });
+        return purgarDuplicadosEOrdenar(lista);
+    }
+
+    function estruturarColunasNotas(obj) {
+        return Object.keys(obj).map(equipe => {
+            const n = obj[equipe];
+            const g = i => n[i] !== undefined ? n[i] : { nota: 0, avaliador: "" };
+            const total = g(0).nota + g(1).nota + g(2).nota;
+            return { equipe, b1: g(0).nota, a1: g(0).avaliador, b2: g(1).nota, a2: g(1).avaliador, b3: g(2).nota, a3: g(2).avaliador, total, media: total / 3 };
+        });
+    }
+
+    function purgarDuplicadosEOrdenar(arr) {
+        let cache = {};
+        return arr.filter(i => cache[i.equipe] ? false : (cache[i.equipe] = true)).sort((a, b) => b.total - a.total);
+    }
+
+    // ===== SEMCITEC, FECEG e MOSTRA: cálculo por aba + soma das 3 melhores avaliações =====
+    const norm = s => s == null ? "" : String(s).replace(/\s+/g, " ").trim().toLowerCase();
+    const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const acha = (cols, termos) => cols.find(c => termos.some(t => norm(c).includes(t)));
+    const IGNORAR = ['carimbo de data/hora', 'avaliador:', 'categoria:', 'projeto:', 'feedback do projeto:', 'total'];
+    const PONTOS_FECEG = { 'inexistente': 0, 'insuficiente': 1, 'fraco': 2.5, 'regular': 5, 'bom': 7.5, 'muito bom': 9, 'excelente': 10, '0': 0, '1': 1, '2,5': 2.5, '2.5': 2.5, '5': 5, '7,5': 7.5, '7.5': 7.5, '9': 9, '10': 10 };
+    function pontosFeceg(valor) {
+        const v = norm(valor);
+        if (v === '') return undefined;
+        if (PONTOS_FECEG[v] !== undefined) return PONTOS_FECEG[v];
+        // valores como "Excelente (10 pontos)" ou "Bom (7,5 pontos)": tenta o número entre parênteses
+        const m = v.match(/\(([\d.,]+)/);
+        if (m) { const n = parseFloat(m[1].replace(',', '.')); if (!isNaN(n)) return n; }
+        // senão, procura o conceito no início do texto ("excelente (10 pontos)" sem casar na tabela)
+        const termo = Object.keys(PONTOS_FECEG).find(t => isNaN(t) && v.startsWith(t));
+        return termo ? PONTOS_FECEG[termo] : undefined;
+    }
+
+    function linhasAvaliacao(wb, k) {
+        const out = [];
+        wb.SheetNames.forEach(sn => {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
+            if (!rows.length) return;
+            const cols = Object.keys(rows[0]);
+            const cp = cols.find(c => ['projeto:', 'projeto'].includes(norm(c))) || acha(cols, ['projet', 'titulo', 'título', 'title']);
+            if (!cp) return;
+            const cc = cols.find(c => norm(c).startsWith('categoria')) || acha(cols, ['categor', 'modalidad', 'eixo', 'área', 'area']);
+            const ca = acha(cols, ['avaliador']);
+            const dados = cols.filter(c => c !== cp && c !== cc && c !== ca && !IGNORAR.includes(norm(c)));
+            const vazio = v => v === null || v === '';
+            let pontuar;
+            if (k === 'feceg') {
+                const crit = dados.filter(c => rows.some(r => pontosFeceg(r[c]) !== undefined));
+                if (!crit.length) return;
+                pontuar = r => crit.reduce((s, c) => s + (pontosFeceg(r[c]) || 0), 0);
+            } else {
+                const crit = dados.filter(c => rows.some(r => !vazio(r[c]) && !isNaN(Number(r[c]))));
+                if (!crit.length) return;
+                pontuar = r => crit.reduce((s, c) => s + (vazio(r[c]) || isNaN(Number(r[c])) ? 0 : Number(r[c])), 0);
+            }
+            rows.forEach(r => {
+                if (vazio(r[cp]) || !String(r[cp]).trim()) return;
+                out.push({
+                    proj: String(r[cp]).trim(), aba: sn, linha: rows.indexOf(r) + 2,
+                    cat: cc && !vazio(r[cc]) ? String(r[cc]).trim() : 'Geral',
+                    aval: ca && !vazio(r[ca]) ? String(r[ca]).trim() : 'Desconhecido',
+                    nota: pontuar(r)
+                });
+            });
+        });
+        return out;
+    }
+
+    // Dados extras: Modalidade, Eixo, Instituição e Orientador por projeto (usa a aba que tiver essas colunas, nunca uma aba de avaliação)
+    function lerExtras(wb) {
+        let melhor = null;
+        wb.SheetNames.forEach(sn => {
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
+            if (!rows.length) return;
+            const cols = Object.keys(rows[0]);
+            if (acha(cols, ['avaliador'])) return;
+            const cp = acha(cols, ['projet', 'titulo', 'título', 'title']);
+            const cm = acha(cols, ['modalidade']);
+            const ce = cols.find(c => norm(c).includes('eixo') && !norm(c).includes('alinhamento'));
+            const ci = acha(cols, ['instituicao_padronizada', 'instituição_padronizada']) || acha(cols, ['institui']);
+            const co = cols.filter(c => ['orientador', 'professor', 'tutor', 'supervisor'].some(t => norm(c).includes(t)) && !['email', 'e-mail', 'telefone', 'celular', 'cidade', 'afilia', 'institui', 'escola'].some(t => norm(c).includes(t)));
+            const score = [cm, ce, ci].filter(Boolean).length + (co.length ? 1 : 0);
+            if (cp && score && (!melhor || score > melhor.score)) melhor = { rows, cp, cm, ce, ci, co, score };
+        });
+        const mapa = {};
+        if (!melhor) return mapa;
+        const txt = (r, c) => c && r[c] != null ? String(r[c]).trim() : '';
+        melhor.rows.forEach(r => {
+            const chave = norm(r[melhor.cp]);
+            if (chave && !mapa[chave]) mapa[chave] = { mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci), orient: [...new Set(melhor.co.map(c => txt(r, c)).filter(Boolean))] };
+        });
+        return mapa;
+    }
+
+    function processarProjetos(wb, k, ext) {
+        const porProjeto = {}, vistos = {};
+        linhasAvaliacao(wb, k).forEach(l => {
+            const chave = norm(l.proj);
+            (porProjeto[chave] = porProjeto[chave] || { equipe: l.proj, cat: l.cat, n: [] }).n.push(l);
+            if (l.aval !== 'Desconhecido') {
+                const dk = l.aba + '|' + norm(l.aval) + '|' + chave;
+                (vistos[dk] = vistos[dk] || []).push(l);
+            }
+        });
+        // Duplicados: mesmo avaliador avaliando o mesmo projeto mais de uma vez na mesma aba
+        const dup = [];
+        Object.values(vistos).forEach(v => { if (v.length > 1) v.forEach(l => dup.push({ aba: l.aba, aval: l.aval, proj: l.proj, nota: l.nota, linha: l.linha })); });
+        const inc = [], geral = [];
+        Object.keys(porProjeto).forEach(chave => {
+            const p = porProjeto[chave];
+            if (p.n.length < 3) { inc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') }); return; }
+            const t = p.n.slice().sort((a, b) => b.nota - a.nota).slice(0, 3);
+            const total = t[0].nota + t[1].nota + t[2].nota;
+            const e = ext[chave] || {};
+            const grupo = (k === 'feceg' ? e.mod : (e.mod && e.eixo ? e.mod + ' — ' + e.eixo : e.mod)) || p.cat;
+            geral.push({ equipe: p.equipe, sub: grupo, grupo, inst: e.inst || '', orient: e.orient || [], b1: t[0].nota, a1: t[0].aval, b2: t[1].nota, a2: t[1].aval, b3: t[2].nota, a3: t[2].aval, total, media: total / 3 });
+        });
+        geral.sort((a, b) => b.total - a.total);
+        if (k === 'feceg' && geral.length) geral[0].febrace = true;
+        const g = {};
+        geral.forEach(p => { if (!p.febrace) (g[p.grupo] = g[p.grupo] || []).push(p); });
+        // FECEG: instituições contadas só entre os projetos no pódio (1º ao 3º) de cada modalidade
+        const podio = k === 'feceg';
+        const base = podio ? Object.values(g).flatMap(l => l.slice(0, 3)) : geral;
+        const conta = (lista, f) => {
+            const c = {};
+            lista.forEach(p => f(p).forEach(n => c[n] = (c[n] || 0) + 1));
+            return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        };
+        return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]), dup, inc, podio,
+                 inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient) };
+    }
+
+    // ===== Renderização =====
+    function selecionarAba(k, i) {
+        abaAtiva[k] = abasRender[k][i];
+        renderizarTabelas();
+    }
+
+    function tabelaTop(nome, lista, rotulo) {
+        if (!lista.length) return `<div class="empty-message">Sem dados de ${nome.toLowerCase()}. Informe o link de dados extras com essa coluna.</div>`;
+        return `<table><thead><tr><th style="width: 80px; text-align: center;">Posição</th><th>${nome}</th><th style="text-align: center; width: 180px;">${rotulo}</th></tr></thead><tbody>` +
+            lista.slice(0, TOP_N).map(([n, q], i) => `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${q}</td></tr>`).join('') +
+            `</tbody></table>`;
+    }
+
+    function tabelaSimples(cabs, linhas, vazio) {
+        if (!linhas.length) return `<div class="empty-message">${vazio}</div>`;
+        return `<table><thead><tr>${cabs.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
+            linhas.map(l => `<tr>${l.map((c, i) => `<td>${cabs[i] === 'Avaliador: Nota' ? c : esc(c)}</td>`).join('')}</tr>`).join('') + `</tbody></table>`;
+    }
+
+    function renderizarTabelas() {
+        let html = '';
+        Object.keys(NUC).forEach(k => {
+            const d = dadosGlobais[k], n = NUC[k];
+            html += `<h2>${n.ttl}</h2>`;
+            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) {
+                html += `<div class="empty-message">Aguardando dados ${n.msg}...</div>`;
+                return;
+            }
+            if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
+
+            const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
+            d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + criarEstruturaTabela(`table-${k}-${i}`, l) }));
+            abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
+                `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos') +
+                `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos') });
+            abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length})`, corpo: () =>
+                `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
+                tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
+                `<h3>⚠️ Projetos com menos de 3 avaliações (fora do ranking)</h3>` +
+                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota'], d.inc.map(x => [x.proj, x.cat, x.qtd, 3 - x.qtd, x.notas]), 'Todos os projetos têm 3 ou mais avaliações.') });
+
+            abasRender[k] = abas.map(a => a.key);
+            if (!abasRender[k].includes(abaAtiva[k])) abaAtiva[k] = 'geral';
+            html += `<div class="tabs no-print">` + abas.map((a, i) => `<button class="tab ${a.key === abaAtiva[k] ? 'active' : ''}" onclick="selecionarAba('${k}', ${i})">${esc(a.rot)}</button>`).join('') + `</div>`;
+            html += abas.find(a => a.key === abaAtiva[k]).corpo();
+        });
+        document.getElementById('rankings-container').innerHTML = html;
+    }
+
+    function criarEstruturaTabela(id, dados) {
+        let t = `<table id="${id}">
+            <thead><tr>
+                <th style="width: 80px; text-align: center;">Posição</th>
+                <th>Nome</th>
+                <th style="text-align: center; width: 160px;">Nota 1</th>
+                <th style="text-align: center; width: 160px;">Nota 2</th>
+                <th style="text-align: center; width: 160px;">Nota 3</th>
+                <th style="text-align: center; font-weight: bold; background-color: #111827; width: 130px;">Pontuação Total</th>
+                <th style="text-align: center; font-weight: bold; background-color: #1f2937; width: 110px;">Média Final</th>
+            </tr></thead><tbody>`;
+        dados.forEach((item, index) => {
+            const badge = index < 3 ? 'rank-' + (index + 1) : '';
+            const cel = (b, a) => a ? `${b.toFixed(1)} <span class="evaluator-name">👤 ${esc(a)}</span>` : `<span class="pending">❌ Pendente</span>`;
+            t += `<tr>
+                <td style="text-align: center;"><span class="rank-badge ${badge}">${index + 1}º</span></td>
+                <td><strong>${esc(item.equipe)}</strong>${item.inst ? `<span class="evaluator-name" style="font-style:normal">🏫 ${esc(item.inst)}</span>` : ''}${item.sub ? `<span class="evaluator-name">${esc(item.sub)}</span>` : ''}${item.febrace ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Vaga na FEBRACE</span>` : ''}</td>
+                <td style="text-align: center;">${cel(item.b1, item.a1)}</td>
+                <td style="text-align: center;">${cel(item.b2, item.a2)}</td>
+                <td style="text-align: center;">${cel(item.b3, item.a3)}</td>
+                <td style="text-align: center; font-weight: bold; background-color: #f8fafc;">${item.total.toFixed(1)}</td>
+                <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">${item.media.toFixed(1)}</td>
+            </tr>`;
+        });
+        return t + `</tbody></table>`;
+    }
+
+    function limparDados() {
+        if (!confirm("Deseja interromper a sincronização ativa e zerar o painel?")) return;
+        if (intervaloSync) clearInterval(intervaloSync);
+        limparEstado();
+        Object.keys(NUC).forEach(k => {
+            document.getElementById('url-' + k).value = "";
+            const ext = document.getElementById('ext-' + k);
+            if (ext) ext.value = "";
+            setInd(k, false, "Desconectado");
+        });
+        document.getElementById('sync-status').innerHTML = "❌ Sincronização interrompida. Painel limpo.";
+        renderizarTabelas();
+    }
+
+    function exportRankingToImage() {
+        if (!Object.keys(NUC).some(k => dadosGlobais[k].geral.length)) {
+            alert("Não existem dados válidos na tela para gerar captura!");
+            return;
+        }
+        const element = document.getElementById('capture-area');
+        const ocultos = document.querySelectorAll('.no-print');
+        ocultos.forEach(el => el.style.display = 'none');
+        html2canvas(element, { scale: 2, backgroundColor: "#ffffff", logging: false }).then(canvas => {
+            ocultos.forEach(el => el.style.display = 'block');
+            const link = document.createElement('a');
+            link.download = 'Ranking_Live_Experimenta_2026.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        });
+    }
+</script>
+
+</body>
+</html>
