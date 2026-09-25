@@ -49,14 +49,14 @@ tr:nth-child(even) td{background-color:#f8fafc}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
-
+ 
 <div class="container" id="capture-area">
     <h1>Sistema de Apuração e Rankings Dinâmicos de Eventos SCTI01</h1>
-
+ 
     <div class="instruction no-print">
         <strong>Modo de Uso:</strong> Use os botões rápidos para carregar os links salvos ou cole novos links diretamente nos campos abaixo. SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador).
     </div>
-
+ 
     <div class="sync-section no-print">
         <div class="preset-container" id="presets"></div>
         <div style="text-align: center; margin-top: 15px;">
@@ -64,16 +64,16 @@ tr:nth-child(even) td{background-color:#f8fafc}
         </div>
         <div class="status-badge" id="sync-status">Status: Aguardando definição de links.</div>
     </div>
-
+ 
     <div class="actions-bar no-print">
         <button class="btn btn-danger" onclick="limparDados()" style="float: left;">🗑️ Interromper e Limpar</button>
         <button class="btn btn-secondary" onclick="exportRankingToImage()">📸 Salvar Ranking como Imagem</button>
         <div style="clear: both;"></div>
     </div>
-
+ 
     <div id="rankings-container"></div>
 </div>
-
+ 
 <script>
     // Links salvos. Para SEMCITEC, FECEG e MOSTRA, preencha aqui os links das planilhas (e "x" = dados extras, opcional).
     const LINKS_SALVOS = {
@@ -83,7 +83,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "",
         mostra: "https://docs.google.com/spreadsheets/d/1Lqffnqykfma5dsO8ZSB-aRShR8YOPqgUDQnpl2FOQmg/edit?usp=sharing", mostrax: ""
     };
-
+ 
     // proj = true: núcleo com cálculo por projeto (top 3 avaliações) e rankings por modalidade/eixo
     const NUC = {
         hackathon: { nome: "🏆 Planilha Hackathon", ttl: "🏆 Ranking Final — Hackathon", msg: "das Equipes do Hackathon" },
@@ -92,13 +92,13 @@ tr:nth-child(even) td{background-color:#f8fafc}
         feceg:     { nome: "🔬 Planilha FECEG", ttl: "🔬 Ranking Final — FECEG", msg: "dos Projetos da FECEG", proj: true },
         mostra:    { nome: "🎨 Planilha MOSTRA", ttl: "🎨 Ranking Final — Mostra de Economia Criativa", msg: "dos Projetos da Mostra", proj: true }
     };
-
+ 
     let dadosGlobais = {};
     let intervaloSync = null;
     let urlsExport = {};
     let abaAtiva = {}, abasRender = {};
     const TOP_N = 10;
-
+ 
     document.getElementById('presets').innerHTML = Object.keys(NUC).map(k => `
         <div class="preset-box">
             <div class="preset-title"><span>${NUC[k].nome}</span><span id="ind-${k}" class="indicator ind-off">Desconectado</span></div>
@@ -106,21 +106,21 @@ tr:nth-child(even) td{background-color:#f8fafc}
             <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
             ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
         </div>`).join('');
-
+ 
     limparEstado();
     renderizarTabelas();
-
+ 
     function limparEstado() {
-        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], inst: [], orient: [], dup: [], inc: [] });
+        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], gruposEnsino: [], inst: [], orient: [], dup: [], inc: [] });
         urlsExport = {};
     }
-
+ 
     function setInd(k, on, txt) {
         const el = document.getElementById('ind-' + k);
         el.className = "indicator " + (on ? "ind-on" : "ind-off");
         el.innerText = txt;
     }
-
+ 
     function carregarLinkSalvo(k) {
         if (!LINKS_SALVOS[k]) { alert("Ainda não há link salvo para este núcleo. Cole o link no campo ou preencha LINKS_SALVOS no código."); return; }
         document.getElementById('url-' + k).value = LINKS_SALVOS[k];
@@ -128,14 +128,14 @@ tr:nth-child(even) td{background-color:#f8fafc}
         if (ext && LINKS_SALVOS[k + 'x']) ext.value = LINKS_SALVOS[k + 'x'];
         setInd(k, true, "Link Pronto");
     }
-
+ 
     function extrairIdSheet(url) {
         const m = (url || "").match(/\/d\/([a-zA-Z0-9-_]+)/);
         return m && m[1] ? m[1] : "";
     }
     const urlExport = url => { const id = extrairIdSheet(url); return id ? `https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx` : ""; };
     const baixar = url => fetch(url).then(r => r.arrayBuffer()).then(b => XLSX.read(new Uint8Array(b), { type: 'array' }));
-
+ 
     function iniciarSincronizacaoGeral() {
         urlsExport = {};
         Object.keys(NUC).forEach(k => {
@@ -153,7 +153,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         executarCicloSincronizacao();
         intervaloSync = setInterval(executarCicloSincronizacao, 5000);
     }
-
+ 
     function executarCicloSincronizacao() {
         const promessas = Object.keys(NUC).filter(k => urlsExport[k]).map(k =>
             baixar(urlsExport[k]).then(wb => {
@@ -170,7 +170,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             renderizarTabelas();
         });
     }
-
+ 
     // ===== Hackathon e Pitch4GRU (lógica original mantida) =====
     function processarAbaEspecifica(workbook) {
         let lista = [];
@@ -200,7 +200,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         });
         return purgarDuplicadosEOrdenar(lista);
     }
-
+ 
     function estruturarColunasNotas(obj) {
         return Object.keys(obj).map(equipe => {
             const n = obj[equipe];
@@ -209,12 +209,12 @@ tr:nth-child(even) td{background-color:#f8fafc}
             return { equipe, b1: g(0).nota, a1: g(0).avaliador, b2: g(1).nota, a2: g(1).avaliador, b3: g(2).nota, a3: g(2).avaliador, total, media: total / 3 };
         });
     }
-
+ 
     function purgarDuplicadosEOrdenar(arr) {
         let cache = {};
         return arr.filter(i => cache[i.equipe] ? false : (cache[i.equipe] = true)).sort((a, b) => b.total - a.total);
     }
-
+ 
     // ===== SEMCITEC, FECEG e MOSTRA: cálculo por aba + soma das 3 melhores avaliações =====
     const norm = s => s == null ? "" : String(s).replace(/\s+/g, " ").trim().toLowerCase();
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -232,7 +232,19 @@ tr:nth-child(even) td{background-color:#f8fafc}
         const termo = Object.keys(PONTOS_FECEG).find(t => isNaN(t) && v.startsWith(t));
         return termo ? PONTOS_FECEG[termo] : undefined;
     }
-
+ 
+    // Heurística simples de gênero pelo primeiro nome — usada só para sugerir o Prêmio Meninas na Ciência (FECEG).
+    // Não é 100% precisa (baseada na terminação do nome); confira manualmente antes de anunciar o resultado.
+    const EXCECOES_NOME_MASC = new Set(['joshua', 'tomas', 'tomás', 'saulo', 'isaias', 'isaías', 'elias', 'lucas', 'matias', 'matheus', 'nicolas', 'nicolás', 'jonas', 'jonás', 'luca', 'kaua', 'kauã', 'caua', 'cauã', 'noa']);
+    const EXCECOES_NOME_FEM = new Set(['raquel', 'ruth', 'rute', 'ester', 'isis', 'íris', 'iris']);
+    function pareceFeminino(nomeCompleto) {
+        const primeiro = norm(nomeCompleto).split(' ')[0];
+        if (!primeiro) return false;
+        if (EXCECOES_NOME_MASC.has(primeiro)) return false;
+        if (EXCECOES_NOME_FEM.has(primeiro)) return true;
+        return primeiro.endsWith('a');
+    }
+ 
     function linhasAvaliacao(wb, k) {
         const out = [];
         wb.SheetNames.forEach(sn => {
@@ -243,7 +255,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
             if (!cp) return;
             const cc = cols.find(c => norm(c).startsWith('categoria')) || acha(cols, ['categor', 'modalidad', 'eixo', 'área', 'area']);
             const ca = acha(cols, ['avaliador']);
-            const dados = cols.filter(c => c !== cp && c !== cc && c !== ca && !IGNORAR.includes(norm(c)));
+            // Nível de Ensino dos autores (ex.: Ensino Médio, Fundamental, Técnico) — vem da própria planilha de avaliação, não da de dados extras
+            const cne = cols.find(c => norm(c).includes('ensino') && !norm(c).includes('institui'));
+            const dados = cols.filter(c => c !== cp && c !== cc && c !== ca && c !== cne && !IGNORAR.includes(norm(c)));
             const vazio = v => v === null || v === '';
             let pontuar;
             if (k === 'feceg') {
@@ -255,20 +269,27 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 if (!crit.length) return;
                 pontuar = r => crit.reduce((s, c) => s + (vazio(r[c]) || isNaN(Number(r[c])) ? 0 : Number(r[c])), 0);
             }
+            // Critérios específicos usados nas premiações exclusivas da FECEG (Prêmio Projeto Tema e Prêmio ODS)
+            const colODS = dados.find(c => norm(c).includes('desenvolvimento sustent') || norm(c).startsWith('ods') || norm(c).includes(' ods'));
+            const colTema = dados.find(c => norm(c).includes('tema e eixo') || (norm(c).includes('alinhamento') && norm(c).includes('tema')));
+            const valorCriterio = (r, col) => !col ? 0 : (k === 'feceg' ? (pontosFeceg(r[col]) || 0) : (vazio(r[col]) || isNaN(Number(r[col])) ? 0 : Number(r[col])));
             rows.forEach(r => {
                 if (vazio(r[cp]) || !String(r[cp]).trim()) return;
                 out.push({
                     proj: String(r[cp]).trim(), aba: sn, linha: rows.indexOf(r) + 2,
                     cat: cc && !vazio(r[cc]) ? String(r[cc]).trim() : 'Geral',
                     aval: ca && !vazio(r[ca]) ? String(r[ca]).trim() : 'Desconhecido',
-                    nota: pontuar(r)
+                    nivelEnsino: cne && !vazio(r[cne]) ? String(r[cne]).trim() : '',
+                    nota: pontuar(r),
+                    notaODS: valorCriterio(r, colODS),
+                    notaTema: valorCriterio(r, colTema)
                 });
             });
         });
         return out;
     }
-
-    // Dados extras: Modalidade, Eixo, Instituição e Orientador por projeto (usa a aba que tiver essas colunas, nunca uma aba de avaliação)
+ 
+    // Dados extras: Modalidade, Eixo, Instituição, Orientador(a) e Autor(a) por projeto (usa a aba que tiver essas colunas, nunca uma aba de avaliação)
     function lerExtras(wb) {
         let melhor = null;
         wb.SheetNames.forEach(sn => {
@@ -281,32 +302,41 @@ tr:nth-child(even) td{background-color:#f8fafc}
             const ce = cols.find(c => norm(c).includes('eixo') && !norm(c).includes('alinhamento'));
             const ci = acha(cols, ['instituicao_padronizada', 'instituição_padronizada']) || acha(cols, ['institui']);
             const co = cols.filter(c => ['orientador', 'professor', 'tutor', 'supervisor'].some(t => norm(c).includes(t)) && !['email', 'e-mail', 'telefone', 'celular', 'cidade', 'afilia', 'institui', 'escola'].some(t => norm(c).includes(t)));
-            const score = [cm, ce, ci].filter(Boolean).length + (co.length ? 1 : 0);
-            if (cp && score && (!melhor || score > melhor.score)) melhor = { rows, cp, cm, ce, ci, co, score };
+            const cau = cols.filter(c => ['autor', 'aluno', 'estudante', 'participante'].some(t => norm(c).includes(t)) && !['email', 'e-mail', 'telefone', 'celular', 'cidade', 'afilia', 'institui', 'escola'].some(t => norm(c).includes(t)));
+            const score = [cm, ce, ci].filter(Boolean).length + (co.length ? 1 : 0) + (cau.length ? 1 : 0);
+            if (cp && score && (!melhor || score > melhor.score)) melhor = { rows, cp, cm, ce, ci, co, cau, score };
         });
         const mapa = {};
         if (!melhor) return mapa;
         const txt = (r, c) => c && r[c] != null ? String(r[c]).trim() : '';
         melhor.rows.forEach(r => {
             const chave = norm(r[melhor.cp]);
-            if (chave && !mapa[chave]) mapa[chave] = { mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci), orient: [...new Set(melhor.co.map(c => txt(r, c)).filter(Boolean))] };
+            if (chave && !mapa[chave]) mapa[chave] = { mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci),
+                orient: [...new Set(melhor.co.map(c => txt(r, c)).filter(Boolean))],
+                autor: [...new Set(melhor.cau.map(c => txt(r, c)).filter(Boolean))] };
         });
         return mapa;
     }
-
+ 
     function processarProjetos(wb, k, ext) {
-        const porProjeto = {}, vistos = {};
-        linhasAvaliacao(wb, k).forEach(l => {
-            const chave = norm(l.proj);
-            (porProjeto[chave] = porProjeto[chave] || { equipe: l.proj, cat: l.cat, n: [] }).n.push(l);
-            if (l.aval !== 'Desconhecido') {
-                const dk = l.aba + '|' + norm(l.aval) + '|' + chave;
-                (vistos[dk] = vistos[dk] || []).push(l);
-            }
+        const linhas = linhasAvaliacao(wb, k);
+        const vistos = {};
+        linhas.forEach(l => {
+            if (l.aval === 'Desconhecido') return;
+            const dk = l.aba + '|' + norm(l.aval) + '|' + norm(l.proj);
+            (vistos[dk] = vistos[dk] || []).push(l);
         });
         // Duplicados: mesmo avaliador avaliando o mesmo projeto mais de uma vez na mesma aba
-        const dup = [];
-        Object.values(vistos).forEach(v => { if (v.length > 1) v.forEach(l => dup.push({ aba: l.aba, aval: l.aval, proj: l.proj, nota: l.nota, linha: l.linha })); });
+        const dup = [], duplicadas = new Set();
+        Object.values(vistos).forEach(v => {
+            if (v.length > 1) v.forEach(l => { dup.push({ aba: l.aba, aval: l.aval, proj: l.proj, nota: l.nota, linha: l.linha }); if (k === 'feceg') duplicadas.add(l); });
+        });
+        const porProjeto = {};
+        linhas.forEach(l => {
+            if (duplicadas.has(l)) return; // FECEG: avaliação duplicada não conta no ranking, só aparece na aba de duplicados
+            const chave = norm(l.proj);
+            (porProjeto[chave] = porProjeto[chave] || { equipe: l.proj, cat: l.cat, n: [] }).n.push(l);
+        });
         const inc = [], geral = [];
         Object.keys(porProjeto).forEach(chave => {
             const p = porProjeto[chave];
@@ -315,12 +345,18 @@ tr:nth-child(even) td{background-color:#f8fafc}
             const total = t[0].nota + t[1].nota + t[2].nota;
             const e = ext[chave] || {};
             const grupo = (k === 'feceg' ? e.mod : (e.mod && e.eixo ? e.mod + ' — ' + e.eixo : e.mod)) || p.cat;
-            geral.push({ equipe: p.equipe, sub: grupo, grupo, inst: e.inst || '', orient: e.orient || [], b1: t[0].nota, a1: t[0].aval, b2: t[1].nota, a2: t[1].aval, b3: t[2].nota, a3: t[2].aval, total, media: total / 3 });
+            const nivel = (p.n.find(x => x.nivelEnsino) || {}).nivelEnsino || '';
+            geral.push({ equipe: p.equipe, sub: grupo, grupo, nivel, inst: e.inst || '', orient: e.orient || [], autor: e.autor || [],
+                         b1: t[0].nota, a1: t[0].aval, b2: t[1].nota, a2: t[1].aval, b3: t[2].nota, a3: t[2].aval, total, media: total / 3,
+                         notaODS: Math.max(0, ...p.n.map(x => x.notaODS || 0)), notaTema: Math.max(0, ...p.n.map(x => x.notaTema || 0)) });
         });
         geral.sort((a, b) => b.total - a.total);
         if (k === 'feceg' && geral.length) geral[0].febrace = true;
         const g = {};
         geral.forEach(p => { if (!p.febrace) (g[p.grupo] = g[p.grupo] || []).push(p); });
+        // Ranking por Nível de Ensino (ex.: Ensino Médio, Fundamental, Técnico) — também exclui o 1º geral já premiado com a vaga FEBRACE
+        const gEnsino = {};
+        geral.forEach(p => { if (!p.febrace && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
         // FECEG: instituições contadas só entre os projetos no pódio (1º ao 3º) de cada modalidade
         const podio = k === 'feceg';
         const base = podio ? Object.values(g).flatMap(l => l.slice(0, 3)) : geral;
@@ -329,29 +365,51 @@ tr:nth-child(even) td{background-color:#f8fafc}
             lista.forEach(p => f(p).forEach(n => c[n] = (c[n] || 0) + 1));
             return Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
         };
-        return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]), dup, inc, podio,
+        // FECEG: premiações exclusivas — pódio (1º ao 3º) de cada Nível de Ensino, Meninas na Ciência, ODS e Projeto Tema, sem repetir projeto já premiado
+        let premiacoes = {};
+        if (k === 'feceg') {
+            const usados = new Set();
+            if (geral.length && geral[0].febrace) usados.add(norm(geral[0].equipe));
+            // Pódio (1º ao 3º) de cada ranking de Modalidade/Categoria também é premiação de maior peso: sai do pool das premiações seguintes
+            // (cobre o caso em que "nível de ensino" é, na prática, a própria Modalidade/Categoria — ex.: quando não há link de dados extras)
+            Object.values(g).forEach(lista => lista.slice(0, 3).forEach(p => usados.add(norm(p.equipe))));
+            // Pódio (1º ao 3º) de cada ranking de Nível de Ensino também é premiação de maior peso: sai do pool das premiações seguintes
+            Object.values(gEnsino).forEach(lista => lista.slice(0, 3).forEach(p => usados.add(norm(p.equipe))));
+            const meninas = geral.find(p => {
+                if (usados.has(norm(p.equipe))) return false;
+                const nomes = [...(p.orient || []), ...(p.autor || [])].filter(Boolean);
+                return nomes.length > 0 && nomes.every(n => pareceFeminino(n));
+            });
+            if (meninas) usados.add(norm(meninas.equipe));
+            const ods = geral.filter(p => !usados.has(norm(p.equipe)) && p.notaODS > 0).sort((a, b) => b.notaODS - a.notaODS)[0];
+            if (ods) usados.add(norm(ods.equipe));
+            const tema = geral.filter(p => !usados.has(norm(p.equipe)) && p.notaTema > 0).sort((a, b) => b.notaTema - a.notaTema)[0];
+            premiacoes = { meninas, ods, tema };
+        }
+        return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
+                 gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes,
                  inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient) };
     }
-
+ 
     // ===== Renderização =====
     function selecionarAba(k, i) {
         abaAtiva[k] = abasRender[k][i];
         renderizarTabelas();
     }
-
+ 
     function tabelaTop(nome, lista, rotulo) {
         if (!lista.length) return `<div class="empty-message">Sem dados de ${nome.toLowerCase()}. Informe o link de dados extras com essa coluna.</div>`;
         return `<table><thead><tr><th style="width: 80px; text-align: center;">Posição</th><th>${nome}</th><th style="text-align: center; width: 180px;">${rotulo}</th></tr></thead><tbody>` +
             lista.slice(0, TOP_N).map(([n, q], i) => `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${q}</td></tr>`).join('') +
             `</tbody></table>`;
     }
-
+ 
     function tabelaSimples(cabs, linhas, vazio) {
         if (!linhas.length) return `<div class="empty-message">${vazio}</div>`;
         return `<table><thead><tr>${cabs.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
             linhas.map(l => `<tr>${l.map((c, i) => `<td>${cabs[i] === 'Avaliador: Nota' ? c : esc(c)}</td>`).join('')}</tr>`).join('') + `</tbody></table>`;
     }
-
+ 
     function renderizarTabelas() {
         let html = '';
         Object.keys(NUC).forEach(k => {
@@ -362,9 +420,10 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 return;
             }
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
-
+ 
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
             d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + criarEstruturaTabela(`table-${k}-${i}`, l) }));
+            (d.gruposEnsino || []).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos') +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos') });
@@ -373,7 +432,20 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
                 `<h3>⚠️ Projetos com menos de 3 avaliações (fora do ranking)</h3>` +
                 tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota'], d.inc.map(x => [x.proj, x.cat, x.qtd, 3 - x.qtd, x.notas]), 'Todos os projetos têm 3 ou mais avaliações.') });
-
+ 
+            if (k === 'feceg') {
+                const pr = d.premiacoes || {};
+                abas.push({ key: 'meninas', rot: '👩‍🔬 Prêmio Meninas na Ciência', corpo: () => pr.meninas
+                    ? `<h3>👩‍🔬 Prêmio Meninas na Ciência</h3><div class="instruction" style="margin:4px 0 0 14px">Projeto com orientação e autoria 100% femininas, entre os elegíveis (fora da vaga FEBRACE). Identificação por nome é automática — confira antes de anunciar.</div>` + criarEstruturaTabela('table-meninas-' + k, [pr.meninas])
+                    : `<div class="empty-message">Nenhum projeto elegível com orientação e autoria 100% femininas foi identificado.</div>` });
+                abas.push({ key: 'ods', rot: '🌍 Prêmio ODS', corpo: () => pr.ods
+                    ? `<h3>🌍 Prêmio ODS</h3><div class="instruction" style="margin:4px 0 0 14px">Maior nota no critério "Alinhamento com os Objetivos do Desenvolvimento Sustentável", entre os projetos ainda não premiados.</div>` + criarEstruturaTabela('table-ods-' + k, [pr.ods])
+                    : `<div class="empty-message">O critério de alinhamento com os ODS não foi encontrado na planilha.</div>` });
+                abas.push({ key: 'tema', rot: '🎯 Prêmio Projeto Tema', corpo: () => pr.tema
+                    ? `<h3>🎯 Prêmio Projeto Tema</h3><div class="instruction" style="margin:4px 0 0 14px">Maior nota no critério "Alinhamento com o tema e eixo escolhido", entre os projetos ainda não premiados.</div>` + criarEstruturaTabela('table-tema-' + k, [pr.tema])
+                    : `<div class="empty-message">O critério de alinhamento com o tema e eixo não foi encontrado na planilha.</div>` });
+            }
+ 
             abasRender[k] = abas.map(a => a.key);
             if (!abasRender[k].includes(abaAtiva[k])) abaAtiva[k] = 'geral';
             html += `<div class="tabs no-print">` + abas.map((a, i) => `<button class="tab ${a.key === abaAtiva[k] ? 'active' : ''}" onclick="selecionarAba('${k}', ${i})">${esc(a.rot)}</button>`).join('') + `</div>`;
@@ -381,7 +453,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         });
         document.getElementById('rankings-container').innerHTML = html;
     }
-
+ 
     function criarEstruturaTabela(id, dados) {
         let t = `<table id="${id}">
             <thead><tr>
@@ -398,7 +470,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             const cel = (b, a) => a ? `${b.toFixed(1)} <span class="evaluator-name">👤 ${esc(a)}</span>` : `<span class="pending">❌ Pendente</span>`;
             t += `<tr>
                 <td style="text-align: center;"><span class="rank-badge ${badge}">${index + 1}º</span></td>
-                <td><strong>${esc(item.equipe)}</strong>${item.inst ? `<span class="evaluator-name" style="font-style:normal">🏫 ${esc(item.inst)}</span>` : ''}${item.sub ? `<span class="evaluator-name">${esc(item.sub)}</span>` : ''}${item.febrace ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Vaga na FEBRACE</span>` : ''}</td>
+                <td><strong>${esc(item.equipe)}</strong>${item.inst ? `<span class="evaluator-name" style="font-style:normal">🏫 ${esc(item.inst)}</span>` : ''}${item.autor && item.autor.length ? `<span class="evaluator-name" style="font-style:normal">🧑‍🎓 ${esc(item.autor.join(', '))}</span>` : ''}${item.sub ? `<span class="evaluator-name">${esc(item.sub)}</span>` : ''}${item.febrace ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Vaga na FEBRACE</span>` : ''}</td>
                 <td style="text-align: center;">${cel(item.b1, item.a1)}</td>
                 <td style="text-align: center;">${cel(item.b2, item.a2)}</td>
                 <td style="text-align: center;">${cel(item.b3, item.a3)}</td>
@@ -408,7 +480,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         });
         return t + `</tbody></table>`;
     }
-
+ 
     function limparDados() {
         if (!confirm("Deseja interromper a sincronização ativa e zerar o painel?")) return;
         if (intervaloSync) clearInterval(intervaloSync);
@@ -422,7 +494,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         document.getElementById('sync-status').innerHTML = "❌ Sincronização interrompida. Painel limpo.";
         renderizarTabelas();
     }
-
+ 
     function exportRankingToImage() {
         if (!Object.keys(NUC).some(k => dadosGlobais[k].geral.length)) {
             alert("Não existem dados válidos na tela para gerar captura!");
@@ -440,6 +512,6 @@ tr:nth-child(even) td{background-color:#f8fafc}
         });
     }
 </script>
-
+ 
 </body>
 </html>
