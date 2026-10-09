@@ -167,8 +167,14 @@ tr:nth-child(even) td{background-color:#f8fafc}
         const promessas = Object.keys(NUC).filter(k => urlsExport[k]).map(k =>
             baixar(urlsExport[k]).then(wb => {
                 if (!NUC[k].proj) return { geral: processarAbaEspecifica(wb), grupos: [], ign: 0 };
-                const extP = urlsExport[k + 'x'] ? baixar(urlsExport[k + 'x']).then(lerExtras).catch(() => ({})) : Promise.resolve().then(() => lerExtras(wb));
-                return extP.then(ext => processarProjetos(wb, k, ext));
+                const extP = urlsExport[k + 'x']
+                    ? baixar(urlsExport[k + 'x']).then(x => ({ ext: lerExtras(x), est: 'ok' })).catch(() => ({ ext: {}, est: 'erro' }))
+                    : Promise.resolve().then(() => ({ ext: lerExtras(wb), est: 'sem-link' }));
+                return extP.then(o => {
+                    const r = processarProjetos(wb, k, o.ext);
+                    r.extInfo = { est: o.est, total: Object.keys(o.ext).length, casados: r.geral.filter(p => p.inst || (p.orient && p.orient.length) || (p.autor && p.autor.length)).length };
+                    return r;
+                });
             }).then(res => {
                 dadosGlobais[k] = res;
                 setInd(k, true, "🔴 Sincronizando Live");
@@ -227,6 +233,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
     // ===== SEMCITEC, FECEG e MOSTRA: cálculo por aba + soma das 3 melhores avaliações =====
     const norm = s => s == null ? "" : String(s).replace(/\s+/g, " ").trim().toLowerCase();
     const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const chaveProj = s => norm(s).replace(/&#0*39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
     const acha = (cols, termos) => cols.find(c => termos.some(t => norm(c).includes(t)));
     const IGNORAR = ['carimbo de data/hora', 'avaliador:', 'categoria:', 'projeto:', 'feedback do projeto:', 'total'];
     const PONTOS_FECEG = { 'inexistente': 0, 'insuficiente': 1, 'fraco': 2.5, 'regular': 5, 'bom': 7.5, 'muito bom': 9, 'excelente': 10, '0': 0, '1': 1, '2,5': 2.5, '2.5': 2.5, '5': 5, '7,5': 7.5, '7.5': 7.5, '9': 9, '10': 10 };
@@ -279,8 +286,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 pontuar = r => crit.reduce((s, c) => s + (vazio(r[c]) || isNaN(Number(r[c])) ? 0 : Number(r[c])), 0);
             }
             // Critérios específicos usados nas premiações exclusivas da FECEG (Prêmio Projeto Tema e Prêmio ODS)
-            const colODS = dados.find(c => norm(c).includes('desenvolvimento sustent') || norm(c).startsWith('ods') || norm(c).includes(' ods'));
-            const colTema = dados.find(c => norm(c).includes('tema e eixo') || (norm(c).includes('alinhamento') && norm(c).includes('tema')));
+            const colODS = dados.find(c => norm(c).includes('desenvolvimento sustent') || norm(c).includes('objetivos de desenvolvimento') || norm(c).startsWith('ods') || norm(c).includes(' ods'));
+            const colTema = dados.find(c => norm(c).includes('tema e eixo') || (norm(c).includes('tema') && norm(c).includes('eixo')) || (norm(c).includes('alinhamento') && norm(c).includes('tema')));
+            out.colODS = out.colODS || colODS || ''; out.colTema = out.colTema || colTema || ''; out.crit = [...new Set([...(out.crit || []), ...dados])];
             const valorCriterio = (r, col) => !col ? 0 : (k === 'feceg' ? (pontosFeceg(r[col]) || 0) : (vazio(r[col]) || isNaN(Number(r[col])) ? 0 : Number(r[col])));
             rows.forEach(r => {
                 if (vazio(r[cp]) || !String(r[cp]).trim()) return;
@@ -313,13 +321,13 @@ tr:nth-child(even) td{background-color:#f8fafc}
             const co = cols.filter(c => ['orientador', 'professor', 'tutor', 'supervisor'].some(t => norm(c).includes(t)) && !['email', 'e-mail', 'telefone', 'celular', 'cidade', 'afilia', 'institui', 'escola'].some(t => norm(c).includes(t)));
             const cau = cols.filter(c => ['autor', 'aluno', 'estudante', 'participante'].some(t => norm(c).includes(t)) && !['email', 'e-mail', 'telefone', 'celular', 'cidade', 'afilia', 'institui', 'escola'].some(t => norm(c).includes(t)));
             const score = [cm, ce, ci].filter(Boolean).length + (co.length ? 1 : 0) + (cau.length ? 1 : 0);
-            if (cp && score && (!melhor || score > melhor.score)) melhor = { rows, cp, cm, ce, ci, co, cau, score };
+            if (cp && score && (!melhor || score > melhor.score || (score === melhor.score && rows.length > melhor.rows.length))) melhor = { rows, cp, cm, ce, ci, co, cau, score };
         });
         const mapa = {};
         if (!melhor) return mapa;
         const txt = (r, c) => c && r[c] != null ? String(r[c]).trim() : '';
         melhor.rows.forEach(r => {
-            const chave = norm(r[melhor.cp]);
+            const chave = chaveProj(r[melhor.cp]);
             if (chave && !mapa[chave]) mapa[chave] = { mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci),
                 orient: [...new Set(melhor.co.map(c => txt(r, c)).filter(Boolean))],
                 autor: [...new Set(melhor.cau.map(c => txt(r, c)).filter(Boolean))] };
@@ -329,6 +337,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
  
     function processarProjetos(wb, k, ext) {
         const linhas = linhasAvaliacao(wb, k);
+        const diag = { ods: linhas.colODS || '', tema: linhas.colTema || '', crit: linhas.crit || [], menNome: 0 };
         const vistos = {};
         linhas.forEach(l => {
             if (l.aval === 'Desconhecido') return;
@@ -352,7 +361,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             if (p.n.length < 3) { inc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') }); return; }
             const t = p.n.slice().sort((a, b) => b.nota - a.nota).slice(0, 3);
             const total = t[0].nota + t[1].nota + t[2].nota;
-            const e = ext[chave] || {};
+            const e = ext[chaveProj(p.equipe)] || ext[chave] || {};
             const grupo = (k === 'feceg' ? e.mod : (e.mod && e.eixo ? e.mod + ' — ' + e.eixo : e.mod)) || p.cat;
             const nivel = (p.n.find(x => x.nivelEnsino) || {}).nivelEnsino || '';
             geral.push({ equipe: p.equipe, sub: grupo, grupo, nivel, inst: e.inst || '', orient: e.orient || [], autor: e.autor || [],
@@ -384,11 +393,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
             Object.values(g).forEach(lista => lista.slice(0, 3).forEach(p => usados.add(norm(p.equipe))));
             // Pódio (1º ao 3º) de cada ranking de Nível de Ensino também é premiação de maior peso: sai do pool das premiações seguintes
             Object.values(gEnsino).forEach(lista => lista.slice(0, 3).forEach(p => usados.add(norm(p.equipe))));
-            const meninas = geral.find(p => {
-                if (usados.has(norm(p.equipe))) return false;
-                const nomes = [...(p.orient || []), ...(p.autor || [])].filter(Boolean);
-                return nomes.length > 0 && nomes.every(n => pareceFeminino(n));
-            });
+            const femOk = p => { const nomes = [...(p.orient || []), ...(p.autor || [])].filter(Boolean); return nomes.length > 0 && nomes.every(n => pareceFeminino(n)); };
+            diag.menNome = geral.filter(femOk).length;
+            const meninas = geral.find(p => !usados.has(norm(p.equipe)) && femOk(p));
             if (meninas) usados.add(norm(meninas.equipe));
             const ods = geral.filter(p => !usados.has(norm(p.equipe)) && p.notaODS > 0).sort((a, b) => b.notaODS - a.notaODS)[0];
             if (ods) usados.add(norm(ods.equipe));
@@ -396,7 +403,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             premiacoes = { meninas, ods, tema };
         }
         return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
-                 gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes,
+                 gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes, diag,
                  inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient) };
     }
  
@@ -419,6 +426,31 @@ tr:nth-child(even) td{background-color:#f8fafc}
             linhas.map(l => `<tr>${l.map((c, i) => `<td>${cabs[i] === 'Avaliador: Nota' ? c : esc(c)}</td>`).join('')}</tr>`).join('') + `</tbody></table>`;
     }
  
+    function msgPremio(tipo, d) {
+        const g = d.diag || {};
+        let t;
+        if (tipo === 'meninas') t = !g.menNome
+            ? 'Nenhum projeto tem orientação e autoria 100% femininas (pelos nomes). Confira se o link de dados extras foi carregado.'
+            : `${g.menNome} projeto(s) têm orientação e autoria femininas, mas todos já foram premiados em outro pódio (FEBRACE, categoria ou nível de ensino).`;
+        else {
+            const col = tipo === 'ods' ? g.ods : g.tema, nome = tipo === 'ods' ? 'ODS' : 'Tema e Eixo';
+            t = !col ? `Coluna do critério de ${nome} não encontrada na planilha de avaliações. Colunas lidas: ${(g.crit || []).map(esc).join(' | ') || 'nenhuma'}.`
+                     : `Coluna "${esc(col)}" encontrada, mas nenhum projeto elegível tem nota maior que 0 nela (sem nota ou já premiados em outro pódio).`;
+        }
+        return `<div class="empty-message">${t}</div>`;
+    }
+
+    function avisoExtras(d) {
+        const x = d.extInfo; if (!x) return '';
+        let m = '';
+        if (x.est === 'erro') m = 'Não consegui baixar a planilha de dados extras. Confira se o link está correto e compartilhado como "qualquer pessoa com o link" (e se é uma planilha do Google, não um .xlsx solto no Drive).';
+        else if (!x.total) m = x.est === 'sem-link'
+            ? 'Nenhum link de dados extras informado: Instituição, Orientador e Meninas na Ciência não serão calculados. Cole o link no campo "dados extras" (o botão "Usar Link Salvo" só preenche se LINKS_SALVOS tiver o link extra, ex.: fecegx).'
+            : 'A planilha de dados extras foi lida, mas nenhuma aba com as colunas Título/Projeto, Instituição, Orientador ou Autores foi reconhecida.';
+        else if (d.geral.length && x.casados < d.geral.length) m = `Dados extras casaram só ${x.casados} de ${d.geral.length} projetos do ranking: os títulos da planilha de avaliações precisam ser iguais aos da planilha de dados.`;
+        return m ? `<div class="instruction no-print" style="margin:4px 0 12px;padding:8px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;color:#92400e">⚠️ ${m}</div>` : '';
+    }
+
     function renderizarTabelas() {
         let html = '';
         Object.keys(NUC).forEach(k => {
@@ -426,6 +458,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             // Só abre o ranking do núcleo se os dados foram carregados
             if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) return;
             html += `<h2>${n.ttl}</h2>`;
+            if (n.proj) html += avisoExtras(d);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
  
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
@@ -444,13 +477,13 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 const pr = d.premiacoes || {};
                 abas.push({ key: 'meninas', rot: '👩‍🔬 Prêmio Meninas na Ciência', corpo: () => pr.meninas
                     ? `<h3>👩‍🔬 Prêmio Meninas na Ciência</h3><div class="instruction" style="margin:4px 0 0 14px">Projeto com orientação e autoria 100% femininas, entre os elegíveis (fora da vaga FEBRACE). Identificação por nome é automática — confira antes de anunciar.</div>` + criarEstruturaTabela('table-meninas-' + k, [pr.meninas])
-                    : `<div class="empty-message">Nenhum projeto elegível com orientação e autoria 100% femininas foi identificado.</div>` });
+                    : msgPremio('meninas', d) });
                 abas.push({ key: 'ods', rot: '🌍 Prêmio ODS', corpo: () => pr.ods
                     ? `<h3>🌍 Prêmio ODS</h3><div class="instruction" style="margin:4px 0 0 14px">Maior nota no critério "Alinhamento com os Objetivos do Desenvolvimento Sustentável", entre os projetos ainda não premiados.</div>` + criarEstruturaTabela('table-ods-' + k, [pr.ods])
-                    : `<div class="empty-message">O critério de alinhamento com os ODS não foi encontrado na planilha.</div>` });
+                    : msgPremio('ods', d) });
                 abas.push({ key: 'tema', rot: '🎯 Prêmio Projeto Tema', corpo: () => pr.tema
                     ? `<h3>🎯 Prêmio Projeto Tema</h3><div class="instruction" style="margin:4px 0 0 14px">Maior nota no critério "Alinhamento com o tema e eixo escolhido", entre os projetos ainda não premiados.</div>` + criarEstruturaTabela('table-tema-' + k, [pr.tema])
-                    : `<div class="empty-message">O critério de alinhamento com o tema e eixo não foi encontrado na planilha.</div>` });
+                    : msgPremio('tema', d) });
             }
  
             abasRender[k] = abas.map(a => a.key);
