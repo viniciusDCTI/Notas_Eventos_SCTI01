@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sistema de Avaliação de Eventos SCTI01</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
 body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background-color:#f4f6F9;color:#333;margin:0;padding:20px}
 .container{max-width:1100px;margin:0 auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,.05)}
@@ -43,6 +44,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .actions-bar{margin-bottom:15px;text-align:right}
 .status-badge{font-size:13px;font-weight:bold;color:#2c5282;margin-top:12px;display:block;background:#fff;padding:8px;border-radius:6px;border:1px solid #e2e8f0}
 .empty-message{text-align:center;padding:30px;color:#94a3b8;font-style:italic;border:1px dashed #e2e8f0;border-radius:6px;margin-bottom:30px}
+#rankings-container:empty{display:none}
 @media print{.no-print{display:none}body{background:#fff;padding:0}.container{box-shadow:none;padding:0}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -98,6 +100,13 @@ tr:nth-child(even) td{background-color:#f8fafc}
     let urlsExport = {};
     let abaAtiva = {}, abasRender = {};
     const TOP_N = 10;
+    const expandidas = {}; // tabelas com a lista completa aberta (guardado para não fechar na atualização automática)
+    function alternarExpansao(id) { expandidas[id] = !expandidas[id]; renderizarTabelas(); }
+    function linhaVerMais(id, total, cols) {
+        if (total <= TOP_N) return '';
+        const aberto = !!expandidas[id];
+        return `<tr class="no-print"><td colspan="${cols}" style="text-align:center;background:#f8fafc"><button class="btn btn-small btn-secondary" onclick="alternarExpansao('${id}')">${aberto ? `▲ Recolher (mostrar só o Top ${TOP_N})` : `▼ Ver restante (+${total - TOP_N})`}</button></td></tr>`;
+    }
  
     document.getElementById('presets').innerHTML = Object.keys(NUC).map(k => `
         <div class="preset-box">
@@ -397,10 +406,10 @@ tr:nth-child(even) td{background-color:#f8fafc}
         renderizarTabelas();
     }
  
-    function tabelaTop(nome, lista, rotulo) {
+    function tabelaTop(nome, lista, rotulo, id) {
         if (!lista.length) return `<div class="empty-message">Sem dados de ${nome.toLowerCase()}. Informe o link de dados extras com essa coluna.</div>`;
         return `<table><thead><tr><th style="width: 80px; text-align: center;">Posição</th><th>${nome}</th><th style="text-align: center; width: 180px;">${rotulo}</th></tr></thead><tbody>` +
-            lista.slice(0, TOP_N).map(([n, q], i) => `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${q}</td></tr>`).join('') +
+            (expandidas[id] ? lista : lista.slice(0, TOP_N)).map(([n, q], i) => `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${q}</td></tr>`).join('') + linhaVerMais(id, lista.length, 3) +
             `</tbody></table>`;
     }
  
@@ -414,19 +423,17 @@ tr:nth-child(even) td{background-color:#f8fafc}
         let html = '';
         Object.keys(NUC).forEach(k => {
             const d = dadosGlobais[k], n = NUC[k];
+            // Só abre o ranking do núcleo se os dados foram carregados
+            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) return;
             html += `<h2>${n.ttl}</h2>`;
-            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) {
-                html += `<div class="empty-message">Aguardando dados ${n.msg}...</div>`;
-                return;
-            }
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
  
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
             d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + criarEstruturaTabela(`table-${k}-${i}`, l) }));
             (d.gruposEnsino || []).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
-                `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos') +
-                `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos') });
+                `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
+                `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
             abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length})`, corpo: () =>
                 `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
                 tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
@@ -465,7 +472,8 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 <th style="text-align: center; font-weight: bold; background-color: #111827; width: 130px;">Pontuação Total</th>
                 <th style="text-align: center; font-weight: bold; background-color: #1f2937; width: 110px;">Média Final</th>
             </tr></thead><tbody>`;
-        dados.forEach((item, index) => {
+        const visiveis = expandidas[id] ? dados : dados.slice(0, TOP_N);
+        visiveis.forEach((item, index) => {
             const badge = index < 3 ? 'rank-' + (index + 1) : '';
             const cel = (b, a) => a ? `${b.toFixed(1)} <span class="evaluator-name">👤 ${esc(a)}</span>` : `<span class="pending">❌ Pendente</span>`;
             t += `<tr>
@@ -478,7 +486,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">${item.media.toFixed(1)}</td>
             </tr>`;
         });
-        return t + `</tbody></table>`;
+        return t + linhaVerMais(id, dados.length, 7) + `</tbody></table>`;
     }
  
     function limparDados() {
@@ -504,7 +512,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         const ocultos = document.querySelectorAll('.no-print');
         ocultos.forEach(el => el.style.display = 'none');
         html2canvas(element, { scale: 2, backgroundColor: "#ffffff", logging: false }).then(canvas => {
-            ocultos.forEach(el => el.style.display = 'block');
+            ocultos.forEach(el => el.style.display = '');
             const link = document.createElement('a');
             link.download = 'Ranking_Live_Experimenta_2026.png';
             link.href = canvas.toDataURL('image/png');
