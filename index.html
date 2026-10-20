@@ -140,6 +140,7 @@ th,td{padding:8px}
     }
     function filtrarAvaliacoes(k, v) { filtroAval[k] = v; renderizarTabelas(); }
     const TOP_N = 10;
+    const LIMITE_EXCESSO = 4; // projetos com MAIS que este número de avaliações aparecem em "Duplicados e Incompletos"
     const expandidas = {}; // tabelas com a lista completa aberta (guardado para não fechar na atualização automática)
     function alternarExpansao(id) { expandidas[id] = !expandidas[id]; renderizarTabelas(); }
     function linhaVerMais(id, total, cols) {
@@ -161,7 +162,7 @@ th,td{padding:8px}
     renderizarTabelas();
  
     function limparEstado() {
-        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], gruposEnsino: [], inst: [], orient: [], dup: [], inc: [], avals: [], projs: [] });
+        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], gruposEnsino: [], inst: [], orient: [], dup: [], inc: [], exc: [], avals: [], projs: [] });
         urlsExport = {};
     }
  
@@ -399,9 +400,11 @@ th,td{padding:8px}
             const chave = norm(l.proj);
             (porProjeto[chave] = porProjeto[chave] || { equipe: l.proj, cat: l.cat, n: [] }).n.push(l);
         });
-        const inc = [], geral = [];
+        const inc = [], geral = [], exc = [];
         Object.keys(porProjeto).forEach(chave => {
             const p = porProjeto[chave];
+            // Projetos com mais de 4 avaliações (continuam no ranking; só são sinalizados na aba de alertas)
+            if (p.n.length > LIMITE_EXCESSO) exc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') });
             if (p.n.length < 3) { inc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') }); return; }
             const t = p.n.slice().sort((a, b) => b.nota - a.nota).slice(0, 3);
             const total = t[0].nota + t[1].nota + t[2].nota;
@@ -447,7 +450,7 @@ th,td{padding:8px}
             premiacoes = { meninas, ods, tema };
         }
         return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
-                 gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes, diag,
+                 gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, exc, podio, premiacoes, diag,
                  inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient),
                  avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba })),
                  projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
@@ -549,11 +552,13 @@ th,td{padding:8px}
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
             abas.push({ key: 'aval', rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', rot: '🚌 ONIBUS', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
-            abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length})`, corpo: () =>
+            abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () =>
                 `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
                 tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
                 `<h3>⚠️ Projetos com menos de 3 avaliações (fora do ranking)</h3>` +
-                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota'], d.inc.map(x => [x.proj, x.cat, x.qtd, 3 - x.qtd, x.notas]), 'Todos os projetos têm 3 ou mais avaliações.') });
+                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota'], d.inc.map(x => [x.proj, x.cat, x.qtd, 3 - x.qtd, x.notas]), 'Todos os projetos têm 3 ou mais avaliações.') +
+                `<h3>⚠️ Projetos com mais de ${LIMITE_EXCESSO} avaliações (continuam no ranking, com as 3 melhores notas)</h3>` +
+                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota'], (d.exc || []).map(x => [x.proj, x.cat, x.qtd, x.qtd - 3, x.notas]), `Nenhum projeto com mais de ${LIMITE_EXCESSO} avaliações.`) });
  
             if (k === 'feceg') {
                 const pr = d.premiacoes || {};
