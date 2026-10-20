@@ -48,6 +48,24 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .badge-falta{font-weight:bold;color:#92400e}
 .empty-message{text-align:center;padding:30px;color:#94a3b8;font-style:italic;border:1px dashed #e2e8f0;border-radius:6px;margin-bottom:30px}
 #rankings-container:empty{display:none}
+/* Celular: só ajusta telas estreitas; o computador não muda */
+@media (max-width:768px){
+body{padding:8px}
+.container{padding:14px;border-radius:8px}
+h1{font-size:18px}
+h2{font-size:16px}
+h3{font-size:14px;padding-left:6px}
+.tabs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+.tab{white-space:nowrap;flex:0 0 auto;padding:8px 12px}
+.preset-box{min-width:0;flex:1 1 100%;box-sizing:border-box}
+.sync-input{min-width:0;width:100%;box-sizing:border-box}
+.sync-input-group{gap:6px}
+.btn{padding:10px 14px}
+.actions-bar .btn{float:none !important;width:100%;margin-bottom:8px}
+table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;font-size:12px}
+th,td{padding:8px}
+.empty-message{padding:16px}
+}
 @media print{.no-print{display:none}body{background:#fff;padding:0}.container{box-shadow:none;padding:0}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -85,7 +103,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
         hackathon: "https://docs.google.com/spreadsheets/d/1v0oT2empOMtpdApSkRO36MhQzt2j7yBwYOzGMrQ30Eo/edit?resourcekey=&gid=840451273#gid=840451273",
         pitch: "https://docs.google.com/spreadsheets/d/1VUVeiy26w0kyEB-FGUBSUwDzYx5sNoARq73qiT-CaSQ/edit?resourcekey=&gid=1199274455#gid=1199274455",
         semcitec: "https://docs.google.com/spreadsheets/d/14OYmkg0JKb7yRqQHkkVTKIK-Hq-Mp2rmCqXVOB1I2xM/edit?usp=sharing", semcitecx: "",
-        feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "",
+        feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "https://docs.google.com/spreadsheets/d/1KPCH_ik6Fjgf3OtPk0BV4Nv6AN1ivPCL/edit?gid=1202867224#gid=1202867224",
         mostra: "https://docs.google.com/spreadsheets/d/1Lqffnqykfma5dsO8ZSB-aRShR8YOPqgUDQnpl2FOQmg/edit?usp=sharing", mostrax: ""
     };
  
@@ -487,10 +505,17 @@ tr:nth-child(even) td{background-color:#f8fafc}
             ? `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:100px">Projetos</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
               linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
-        const tProj = projsF.length
-            ? `<table><thead><tr><th>Projeto</th><th>Instituição</th><th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
-              projsF.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td><td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td><td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`
-            : `<div class="empty-message">Nenhum projeto encontrado.</div>`;
+        const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+            lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
+        // ONIBUS: com dados extras carregados, separa os projetos por instituição
+        const SEM_INST = 'Sem instituição informada';
+        const porInst = {};
+        projsF.forEach(p => { (porInst[p.inst || SEM_INST] = porInst[p.inst || SEM_INST] || []).push(p); });
+        const tProj = !projsF.length ? `<div class="empty-message">Nenhum projeto encontrado.</div>`
+            : (modo === 'onibus' && projsAll.some(p => p.inst))
+                ? Object.keys(porInst).sort((a, b) => (a === SEM_INST) - (b === SEM_INST) || a.localeCompare(b)).map(i =>
+                    `<h3>🏫 ${esc(i)} — ${porInst[i].filter(p => p.qtd >= 3).length} de ${porInst[i].length} liberados</h3>` + tabProj(porInst[i], true)).join('')
+                : tabProj(projsF, false);
         if (modo === 'onibus') return `<h3>🚌 ONIBUS — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
         return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
     }
