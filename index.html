@@ -48,6 +48,23 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .badge-falta{font-weight:bold;color:#92400e}
 .empty-message{text-align:center;padding:30px;color:#94a3b8;font-style:italic;border:1px dashed #e2e8f0;border-radius:6px;margin-bottom:30px}
 #rankings-container:empty{display:none}
+/* Abas separadas: Rankings x Operacional */
+.tabs-grupo{display:flex;align-items:center;gap:10px;margin:12px 0 2px}
+.tabs-grupo .tabs{margin:0}
+.tabs-rot{font-size:12px;font-weight:bold;color:#1b365d;background:#e0e7ff;border:1px solid #c7d2fe;padding:6px 10px;border-radius:6px;white-space:nowrap}
+.tabs-rot.op{color:#92400e;background:#fef3c7;border-color:#fcd34d}
+.tab.op{background:#fef3c7;color:#92400e}.tab.op:hover{background:#fde68a}.tab.op.active{background:#92400e;color:#fff}
+/* FECEG: contador de avaliações, Stand e problemas */
+.contador{font-size:20px;font-weight:bold;color:#1b365d}.contador.ok{color:#22543d}
+.stand{display:inline-block;background:#1b365d;color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:bold;white-space:nowrap}
+.pj{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px 0;border-bottom:1px dashed #cbd5e1}
+.pj:last-child{border-bottom:none}
+.pj-t{font-size:13px}.pj-pend .pj-t{color:#64748b}
+.pj-r{font-size:11px;color:#64748b}
+.prob{display:inline-block;background:#fed7d7;color:#9b2c2c;border:1px solid #feb2b2;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:bold;cursor:pointer}
+.prob-linha{margin-top:6px}
+.tag-extra{display:inline-block;background:#e0f2fe;color:#075985;border:1px solid #bae6fd;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:bold}
+.row-prob td:first-child{box-shadow:inset 4px 0 0 #dd6b20}
 /* Celular: só ajusta telas estreitas; o computador não muda */
 @media (max-width:768px){
 body{padding:8px}
@@ -65,6 +82,7 @@ h3{font-size:14px;padding-left:6px}
 table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;font-size:12px}
 th,td{padding:8px}
 .empty-message{padding:16px}
+.tabs-grupo{display:block}.tabs-rot{display:inline-block;margin-bottom:4px}
 }
 @media print{.no-print{display:none}body{background:#fff;padding:0}.container{box-shadow:none;padding:0}}
 </style>
@@ -77,7 +95,7 @@ th,td{padding:8px}
     <h1>Sistema de Apuração e Rankings Dinâmicos de Eventos SCTI01</h1>
  
     <div class="instruction no-print">
-        <strong>Modo de Uso:</strong> Use os botões rápidos para carregar os links salvos ou cole novos links diretamente nos campos abaixo. SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador).
+        <strong>Modo de Uso:</strong> Use os botões rápidos para carregar os links salvos ou cole novos links diretamente nos campos abaixo. SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador). A FECEG aceita ainda a planilha de distribuição (Stand e avaliadores por projeto) e a URL do Apps Script de exclusão de avaliações.
     </div>
  
     <div class="sync-section no-print">
@@ -104,6 +122,7 @@ th,td{padding:8px}
         pitch: "https://docs.google.com/spreadsheets/d/1VUVeiy26w0kyEB-FGUBSUwDzYx5sNoARq73qiT-CaSQ/edit?resourcekey=&gid=1199274455#gid=1199274455",
         semcitec: "https://docs.google.com/spreadsheets/d/14OYmkg0JKb7yRqQHkkVTKIK-Hq-Mp2rmCqXVOB1I2xM/edit?usp=sharing", semcitecx: "",
         feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "https://docs.google.com/spreadsheets/d/1KPCH_ik6Fjgf3OtPk0BV4Nv6AN1ivPCL/edit?gid=1202867224#gid=1202867224",
+        fecegd: "", fecegdel: "", // FECEG: link da planilha de distribuição (Stands) e URL do Apps Script de exclusão (opcionais)
         mostra: "https://docs.google.com/spreadsheets/d/1Lqffnqykfma5dsO8ZSB-aRShR8YOPqgUDQnpl2FOQmg/edit?usp=sharing", mostrax: ""
     };
  
@@ -120,6 +139,11 @@ th,td{padding:8px}
     let intervaloSync = null;
     let urlsExport = {};
     let abaAtiva = {}, abasRender = {}, abaEscolhida = {}, filtroAval = {};
+    // FECEG: planilha de distribuição. Se as abas das rodadas e o "Resumo Completo" divergirem nos avaliadores, vale a fonte abaixo ('rodadas' ou 'resumo')
+    const DIST_FONTE_AVALIADORES = 'rodadas';
+    let distLink = null, distArq = null, distT = 0, distErro = '', distArqNome = '';
+    let senhaExcl = '', bloqueioExcl = 0;
+    const regExcl = []; // avaliações com botão de excluir na tela atual
     const OPT_TODAS = '<option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option>';
     // Abas da planilha usadas no ranking: a escolhida ou, por padrão, todas juntas
     function abasUsadas(wb, k) {
@@ -156,8 +180,13 @@ th,td{padding:8px}
             <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
             <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">Aba do ranking:</label><select id="aba-${k}" class="sync-input" onchange="escolherAba('${k}', this.value)"><option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option></select></div>
             ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
+            ${k === 'feceg' ? `<div class="sync-input-group"><input type="text" id="dist-${k}" class="sync-input" placeholder="Link da planilha de distribuição (Stand e avaliadores) — opcional"></div>
+            <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">ou arquivo .xlsx:</label><input type="file" id="dist-arq-${k}" class="sync-input" accept=".xlsx,.xls" onchange="lerArquivoDistribuicao(this)"></div>
+            <div id="dist-info-${k}" style="font-size:12px;color:#475569;margin-top:6px"></div>
+            <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao(this.value)"></div>` : ''}
         </div>`).join('');
  
+    try { const sv = localStorage.getItem('scti01_del_feceg'), el = document.getElementById('del-feceg'); if (sv && el) el.value = sv; } catch (e) {}
     limparEstado();
     renderizarTabelas();
  
@@ -177,6 +206,10 @@ th,td{padding:8px}
         document.getElementById('url-' + k).value = LINKS_SALVOS[k];
         const ext = document.getElementById('ext-' + k);
         if (ext && LINKS_SALVOS[k + 'x']) ext.value = LINKS_SALVOS[k + 'x'];
+        const dst = document.getElementById('dist-' + k);
+        if (dst && LINKS_SALVOS[k + 'd']) dst.value = LINKS_SALVOS[k + 'd'];
+        const dl = document.getElementById('del-' + k);
+        if (dl && LINKS_SALVOS[k + 'del']) { dl.value = LINKS_SALVOS[k + 'del']; salvarUrlExclusao(dl.value); }
         setInd(k, true, "Link Pronto");
     }
  
@@ -194,7 +227,10 @@ th,td{padding:8px}
             if (u) urlsExport[k] = u;
             const ext = document.getElementById('ext-' + k);
             if (ext && urlExport(ext.value.trim())) urlsExport[k + 'x'] = urlExport(ext.value.trim());
+            const dst = document.getElementById('dist-' + k);
+            if (dst && urlExport(dst.value.trim())) urlsExport[k + 'd'] = urlExport(dst.value.trim());
         });
+        distLink = null; distT = 0; distErro = '';
         if (!Object.keys(NUC).some(k => urlsExport[k])) {
             alert("Por favor, carregue ou cole pelo menos um link de planilha para sincronizar!");
             return;
@@ -223,6 +259,7 @@ th,td{padding:8px}
                 setInd(k, true, "🔴 Sincronizando Live");
             }).catch(() => setInd(k, false, "⚠️ Erro de Conexão"))
         );
+        promessas.push(atualizarDistribuicao());
         Promise.all(promessas).then(() => {
             document.getElementById('sync-status').innerHTML = `🟢 Rankings sincronizados e atualizados com sucesso às ${new Date().toLocaleTimeString()}!`;
             renderizarTabelas();
@@ -338,7 +375,7 @@ th,td{padding:8px}
             rows.forEach(r => {
                 if (vazio(r[cp]) || !String(r[cp]).trim()) return;
                 out.push({
-                    proj: String(r[cp]).trim(), aba: sn, linha: rows.indexOf(r) + 2,
+                    proj: String(r[cp]).trim(), aba: sn, linha: rows.indexOf(r) + 2, linhaReal: r.__rowNum__ != null ? r.__rowNum__ + 1 : rows.indexOf(r) + 2,
                     cat: cc && !vazio(r[cc]) ? String(r[cc]).trim() : 'Geral',
                     aval: ca && !vazio(r[ca]) ? String(r[ca]).trim() : 'Desconhecido',
                     nivelEnsino: cne && !vazio(r[cne]) ? String(r[cne]).trim() : '',
@@ -392,7 +429,7 @@ th,td{padding:8px}
         // Duplicados: mesmo avaliador avaliando o mesmo projeto mais de uma vez na mesma aba
         const dup = [], duplicadas = new Set();
         Object.values(vistos).forEach(v => {
-            if (v.length > 1) v.forEach(l => { dup.push({ aba: l.aba, aval: l.aval, proj: l.proj, nota: l.nota, linha: l.linha }); if (k === 'feceg') duplicadas.add(l); });
+            if (v.length > 1) v.forEach(l => { dup.push({ aba: l.aba, aval: l.aval, proj: l.proj, nota: l.nota, linha: l.linha, linhaReal: l.linhaReal, iguais: v.length }); if (k === 'feceg') duplicadas.add(l); });
         });
         const porProjeto = {};
         linhas.forEach(l => {
@@ -401,11 +438,12 @@ th,td{padding:8px}
             (porProjeto[chave] = porProjeto[chave] || { equipe: l.proj, cat: l.cat, n: [] }).n.push(l);
         });
         const inc = [], geral = [], exc = [];
+        const evsDe = p => p.n.map(x => ({ aval: x.aval, nota: x.nota, aba: x.aba, linha: x.linhaReal || x.linha, proj: x.proj }));
         Object.keys(porProjeto).forEach(chave => {
             const p = porProjeto[chave];
             // Projetos com mais de 4 avaliações (continuam no ranking; só são sinalizados na aba de alertas)
-            if (p.n.length > LIMITE_EXCESSO) exc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') });
-            if (p.n.length < 3) { inc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') }); return; }
+            if (p.n.length > LIMITE_EXCESSO) exc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, evs: evsDe(p), notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') });
+            if (p.n.length < 3) { inc.push({ proj: p.equipe, cat: p.cat, qtd: p.n.length, evs: evsDe(p), notas: p.n.map(x => `${esc(x.aval)}: ${x.nota.toFixed(1)}`).join(' | ') }); return; }
             const t = p.n.slice().sort((a, b) => b.nota - a.nota).slice(0, 3);
             const total = t[0].nota + t[1].nota + t[2].nota;
             const e = ext[chaveProj(p.equipe)] || ext[chave] || {};
@@ -456,6 +494,277 @@ th,td{padding:8px}
                  projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
     }
  
+    // ===== FECEG: planilha de distribuição (Stand e avaliadores atribuídos a cada projeto) =====
+    const semAcento = s => norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const chaveTitulo = s => semAcento(chaveProj(s)).replace(/[^a-z0-9]+/g, ' ').trim();
+    const chaveNome = s => semAcento(s).replace(/[^a-z0-9]+/g, ' ').trim();
+    const rotuloRodada = s => { const t = String(s || '').trim().toLowerCase(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; };
+    function distAtual() { return distLink || distArq; }
+
+    // Lê as abas das rodadas (STAND, ID, Título, Avaliador 1..3) e, como complemento, o "Resumo Completo" (ID, Avaliador Presencial 1..3)
+    function lerDistribuicao(wb) {
+        const txt = v => v == null ? '' : String(v).trim();
+        const rodadas = [], resumo = [];
+        wb.SheetNames.forEach(sn => {
+            const ws = wb.Sheets[sn];
+            if (!ws || !ws['!ref']) return;
+            const m = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
+            const hi = m.findIndex((r, i) => i < 15 && r && r.some(c => norm(c) === 'id') && (r.some(c => norm(c) === 'stand') || r.some(c => /^avaliador presencial \d+$/.test(norm(c)))));
+            if (hi < 0) return;
+            const h = m[hi].map(norm);
+            const col = f => h.findIndex(f);
+            const cId = col(c => c === 'id'), cStand = col(c => c === 'stand');
+            const cTit = col(c => c === 'título' || c === 'titulo'), cInst = col(c => c === 'instituição' || c === 'instituicao'), cCat = col(c => c.startsWith('categoria'));
+            const cAv = h.map((c, i) => /^avaliador( presencial)? \d+$/.test(c) ? i : -1).filter(i => i >= 0);
+            const rodada = cStand >= 0 ? rotuloRodada(hi > 0 && m[0] && txt(m[0][0]) ? m[0][0] : sn) : '';
+            m.slice(hi + 1).forEach(r => {
+                const id = txt(r[cId]);
+                if (!id) return;
+                const item = { id, titulo: txt(r[cTit]), stand: cStand >= 0 ? txt(r[cStand]) : '', rodada, inst: txt(r[cInst]), cat: txt(r[cCat]), avals: cAv.map(i => txt(r[i])).filter(Boolean) };
+                (cStand >= 0 ? rodadas : resumo).push(item);
+            });
+        });
+        const porId = {}, projs = [];
+        rodadas.forEach(p => { if (!porId[p.id]) { porId[p.id] = p; projs.push(p); } });
+        const lista = a => a.map(chaveNome).sort().join('|');
+        let diverge = 0;
+        resumo.forEach(r => {
+            const p = porId[r.id];
+            if (!p) { porId[r.id] = r; projs.push(r); return; }
+            if (lista(p.avals) !== lista(r.avals)) { diverge++; if (DIST_FONTE_AVALIADORES === 'resumo' && r.avals.length) p.avals = r.avals; }
+        });
+        const porTitulo = {};
+        projs.forEach(p => { const c = chaveTitulo(p.titulo); if (c && !porTitulo[c]) porTitulo[c] = p; });
+        const avals = {};
+        projs.forEach(p => p.avals.forEach(n => {
+            const c = chaveNome(n);
+            if (!c) return;
+            const a = avals[c] = avals[c] || { nome: n, chave: c, projs: [] };
+            if (!a.projs.includes(p)) a.projs.push(p);
+        }));
+        return { projs, porId, porTitulo, avals, diverge, fonte: DIST_FONTE_AVALIADORES };
+    }
+
+    function atualizarDistribuicao() {
+        const u = urlsExport['fecegd'];
+        if (!u) { distLink = null; return Promise.resolve(); }
+        if (distLink && Date.now() - distT < 30000) return Promise.resolve(); // baixa de novo só a cada 30 s
+        return baixar(u).then(wb => {
+            const x = lerDistribuicao(wb);
+            if (!x.projs.length) throw new Error('vazia');
+            distLink = x; distT = Date.now(); distErro = '';
+        }).catch(() => { distErro = 'Não consegui ler a planilha de distribuição (confira o link, se está compartilhada como "qualquer pessoa com o link" e se tem abas com as colunas STAND e ID). Se houver um arquivo .xlsx carregado, ele está sendo usado.'; });
+    }
+
+    function lerArquivoDistribuicao(inp) {
+        const f = inp.files && inp.files[0];
+        if (!f) { distArq = null; distArqNome = ''; renderizarTabelas(); return; }
+        const rd = new FileReader();
+        rd.onload = () => {
+            try {
+                const x = lerDistribuicao(XLSX.read(new Uint8Array(rd.result), { type: 'array' }));
+                if (!x.projs.length) throw new Error('vazia');
+                distArq = x; distArqNome = f.name; distErro = '';
+            } catch (e) { distArq = null; distArqNome = ''; distErro = 'Não consegui ler o arquivo de distribuição (precisa ter abas com as colunas STAND e ID).'; }
+            renderizarTabelas();
+        };
+        rd.readAsArrayBuffer(f);
+    }
+
+    function atualizarInfoDist() {
+        const el = document.getElementById('dist-info-feceg');
+        if (!el) return;
+        const dist = distAtual(), d = dadosGlobais.feceg;
+        let t = '';
+        if (distErro) t = '⚠️ ' + distErro;
+        else if (dist) {
+            t = `✅ Distribuição carregada (${distLink ? 'link' : esc(distArqNome)}): ${dist.projs.length} projetos, ${Object.keys(dist.avals).length} avaliadores.`;
+            if (d && d.projs && d.projs.length) {
+                const sem = d.projs.filter(p => !achaProjDist(dist, p.proj)).length;
+                if (sem) t += ` ⚠️ ${sem} projeto(s) da planilha de avaliações não foram achados na distribuição (os títulos precisam ser iguais).`;
+            }
+            if (dist.diverge) t += ` ⚠️ ${dist.diverge} projeto(s) com avaliadores diferentes entre as abas das rodadas e o "Resumo Completo" — usando ${dist.fonte === 'resumo' ? 'o Resumo Completo' : 'as abas das rodadas'}.`;
+        }
+        el.innerHTML = t;
+    }
+
+    // Casa o título (ou o ID no começo do texto) da planilha de avaliações com o projeto da distribuição
+    function achaProjDist(dist, titulo) {
+        if (!dist) return null;
+        const t = String(titulo || '');
+        const memo = dist._mp || (dist._mp = {});
+        if (t in memo) return memo[t];
+        let r = dist.porTitulo[chaveTitulo(t)] || null;
+        if (!r) {
+            const mid = t.match(/^\s*#?(\d{3,5})\b/) || t.match(/\bid\s*[:#-]?\s*(\d{3,5})\b/i);
+            if (mid && dist.porId[mid[1]]) r = dist.porId[mid[1]];
+        }
+        if (!r) {
+            const c = chaveTitulo(t);
+            if (c.length >= 20) {
+                const ks = Object.keys(dist.porTitulo).filter(x => x.length >= 20 && (x.startsWith(c) || c.startsWith(x)));
+                if (ks.length === 1) r = dist.porTitulo[ks[0]];
+            }
+        }
+        return memo[t] = r;
+    }
+
+    // Casa o nome do avaliador da planilha de avaliações com o da distribuição (sem acento/maiúscula; aceita nome abreviado se for único)
+    function achaAvalDist(dist, nome) {
+        if (!dist) return null;
+        const memo = dist._ma || (dist._ma = {});
+        if (nome in memo) return memo[nome];
+        const c = chaveNome(nome);
+        let r = dist.avals[c] || null;
+        if (!r && c) {
+            const tk = c.split(' ');
+            const cand = Object.values(dist.avals).filter(a => {
+                const t2 = a.chave.split(' ');
+                const [pq, gd] = tk.length <= t2.length ? [tk, t2] : [t2, tk];
+                return pq.length >= 2 && pq.every(x => gd.includes(x));
+            });
+            if (cand.length === 1) r = cand[0];
+        }
+        return memo[nome] = r;
+    }
+
+    // Problemas (mesmos da aba Duplicados e Incompletos) de um projeto para um avaliador
+    function problemasFeceg(d) {
+        const mInc = {}, mExc = {}, mDup = {};
+        (d.inc || []).forEach(x => mInc[norm(x.proj)] = x);
+        (d.exc || []).forEach(x => mExc[norm(x.proj)] = x);
+        (d.dup || []).forEach(x => { const c = norm(x.aval) + '|' + norm(x.proj); (mDup[c] = mDup[c] || []).push(x); });
+        return (aval, proj) => {
+            const out = [], p = norm(proj), dp = mDup[norm(aval) + '|' + p];
+            if (dp) out.push(`Avaliação duplicada (linha${dp.length > 1 ? 's' : ''} ${dp.map(x => x.linhaReal || x.linha).join(', ')})`);
+            if (mInc[p]) out.push(`Projeto incompleto: ${mInc[p].qtd}/3 avaliações`);
+            if (mExc[p]) out.push(`Projeto com ${mExc[p].qtd} avaliações (excesso)`);
+            return out;
+        };
+    }
+
+    // Uma linha por avaliador: projetos atribuídos (distribuição) + o que ele já avaliou, com contador e problemas
+    function modeloAvaliadores(d, dist) {
+        const probDe = problemasFeceg(d), linhas = {};
+        const get = nome => {
+            const da = achaAvalDist(dist, nome);
+            const chave = da ? da.chave : 'x:' + chaveNome(nome);
+            return linhas[chave] = linhas[chave] || { nome: da ? da.nome : nome, chave, foraDist: !!dist && !da, atrib: da ? da.projs : [], feitos: [] };
+        };
+        if (dist) Object.values(dist.avals).forEach(a => get(a.nome));
+        (d.avals || []).forEach(l => { const r = get(l.aval); if (!r.feitos.some(f => norm(f.proj) === norm(l.proj))) r.feitos.push({ proj: l.proj, aval: l.aval }); });
+        return Object.values(linhas).map(r => {
+            const itens = [], usados = new Set();
+            r.atrib.forEach(dp => {
+                const f = r.feitos.find(x => achaProjDist(dist, x.proj) === dp);
+                if (f) usados.add(f);
+                itens.push({ dp, titulo: f ? f.proj : dp.titulo, feito: !!f, extra: false, probs: f ? probDe(f.aval, f.proj) : [] });
+            });
+            const done = itens.filter(i => i.feito).length;
+            r.feitos.filter(f => !usados.has(f)).forEach(f => {
+                const dp = achaProjDist(dist, f.proj);
+                itens.push({ dp, titulo: f.proj, feito: true, extra: !!(dist && r.atrib.length && !(dp && r.atrib.includes(dp))), probs: probDe(f.aval, f.proj) });
+            });
+            const ordem = i => i.dp && i.dp.rodada ? i.dp.rodada : '~', sn = i => Number(i.dp && i.dp.stand) || 9999;
+            itens.sort((a, b) => (a.extra - b.extra) || ordem(a).localeCompare(ordem(b)) || (sn(a) - sn(b)) || String(a.titulo).localeCompare(String(b.titulo)));
+            const total = r.atrib.length;
+            return Object.assign(r, { itens, done, total, concl: total > 0 && done >= total, nprob: itens.filter(i => i.probs.length).length });
+        }).sort((a, b) => a.nome.localeCompare(b.nome));
+    }
+
+    function standHtml(dp) {
+        return (dp.stand ? `<span class="stand">${esc(dp.stand)}</span>` : '<span class="pending">—</span>') + (dp.rodada ? `<span class="evaluator-name" style="font-style:normal">${esc(dp.rodada)}</span>` : '');
+    }
+
+    function irParaAba(k, key) { abaAtiva[k] = key; renderizarTabelas(); }
+
+    function tabelaAvalFeceg(k, d, dist, casa) {
+        const rows = modeloAvaliadores(d, dist);
+        const comTot = rows.filter(r => r.total > 0);
+        const concl = comTot.filter(r => r.concl).length, comProb = rows.filter(r => r.nprob > 0).length;
+        const prev = comTot.reduce((s, r) => s + r.total, 0), feitas = comTot.reduce((s, r) => s + r.done, 0);
+        const resumo = `<div class="instruction" style="margin:8px 0 0 14px">${dist ? `✅ <strong>${concl}</strong> de ${comTot.length} avaliadores com avaliação concluída (${feitas} de ${prev} avaliações previstas) · ` : ''}⚠️ <strong>${comProb}</strong> avaliador(es) com projeto em problema</div>`;
+        const vis = rows.map(r => {
+            const itens = casa(r.nome) ? r.itens : r.itens.filter(i => casa(i.titulo) || (i.dp && i.dp.stand && casa('stand ' + i.dp.stand)));
+            return itens.length ? { r, itens } : null;
+        }).filter(Boolean);
+        if (!vis.length) return resumo + `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
+        const chip = i => `<div class="pj ${i.feito ? '' : 'pj-pend'}"><span>${i.feito ? '✅' : '⏳'}</span>${i.dp && i.dp.stand ? `<span class="stand">Stand ${esc(i.dp.stand)}</span>` : ''}<span class="pj-t">${esc(i.titulo)}</span>${i.dp && i.dp.rodada ? `<span class="pj-r">${esc(i.dp.rodada)}</span>` : ''}${i.extra ? '<span class="tag-extra">fora da lista do avaliador</span>' : ''}${i.probs.map(p => `<span class="prob" title="Ver em Duplicados e Incompletos" onclick="irParaAba('${k}', 'alert')">⚠️ ${esc(p)}</span>`).join('')}</div>`;
+        const contador = r => {
+            const extras = r.itens.filter(i => i.extra).length;
+            let h = r.total > 0
+                ? `<div class="contador ${r.concl ? 'ok' : ''}">${r.done}/${r.total}</div>` + (r.concl ? '<div class="badge-lib">✅ Avaliação concluída</div>' : `<div class="badge-falta">⏳ Faltam ${r.total - r.done}</div>`)
+                : `<div class="contador">${r.itens.filter(i => i.feito).length}</div>` + (r.foraDist ? '<div class="pending">fora da distribuição</div>' : '');
+            if (extras && r.total > 0) h += `<div class="pending">+${extras} fora da lista</div>`;
+            if (r.nprob) h += `<div class="prob prob-linha" onclick="irParaAba('${k}', 'alert')" title="Ver em Duplicados e Incompletos">⚠️ ${r.nprob} projeto(s) com problema</div>`;
+            return h;
+        };
+        return resumo + `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:170px">${dist ? 'Avaliações (feitas/atribuídas)' : 'Projetos'}</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
+            vis.map(({ r, itens }) => `<tr class="${r.concl ? 'liberado' : ''} ${r.nprob ? 'row-prob' : ''}"><td><strong>${esc(r.nome)}</strong></td><td style="text-align:center">${contador(r)}</td><td>${itens.map(chip).join('')}</td></tr>`).join('') + `</tbody></table>`;
+    }
+
+    // ===== Aba Duplicados e Incompletos (com Stand e botão de excluir na FECEG) =====
+    function btnExcluir(e, iguais) {
+        const i = regExcl.push({ aba: e.aba, linha: e.linha, proj: e.proj, aval: e.aval, nota: e.nota, iguais }) - 1;
+        return `<button class="btn btn-small btn-danger no-print" title="Excluir esta avaliação da planilha (permanente)" onclick="excluirAvaliacao(${i})">🗑️ Excluir</button>`;
+    }
+
+    function corpoAlertas(k, d) {
+        const feceg = k === 'feceg', dist = feceg ? distAtual() : null, comStand = !!dist;
+        const stand = t => { const dp = achaProjDist(dist, t); return dp && dp.stand ? dp.stand + (dp.rodada ? ' (' + dp.rodada + ')' : '') : '—'; };
+        const notasBtn = x => x.evs.map(e => `<span style="white-space:nowrap">${esc(e.aval)}: ${e.nota.toFixed(1)} ${btnExcluir(e, 1)}</span>`).join(' | ');
+        const aviso = feceg ? `<div class="instruction no-print" style="margin:4px 0 0 14px">🗑️ O botão <strong>Excluir</strong> apaga a linha da planilha de avaliações <strong>permanentemente</strong>. Ele só funciona com a URL do Apps Script de exclusão preenchida no card da FECEG.</div>` : '';
+        const cabDup = ['Aba', 'Avaliador', 'Projeto'].concat(comStand ? ['Stand'] : [], ['Nota total', 'Linha na planilha'], feceg ? ['Ação'] : []);
+        const linDup = d.dup.map(x => [x.aba, x.aval, x.proj].concat(comStand ? [stand(x.proj)] : [], [x.nota.toFixed(1), x.linhaReal || x.linha],
+            feceg ? [btnExcluir({ aba: x.aba, linha: x.linhaReal || x.linha, proj: x.proj, aval: x.aval, nota: x.nota }, x.iguais)] : []));
+        const cabInc = ['Projeto'].concat(comStand ? ['Stand'] : [], ['Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota']);
+        const linInc = d.inc.map(x => [x.proj].concat(comStand ? [stand(x.proj)] : [], [x.cat, x.qtd, 3 - x.qtd, feceg ? notasBtn(x) : x.notas]));
+        const cabExc = ['Projeto'].concat(comStand ? ['Stand'] : [], ['Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota']);
+        const linExc = (d.exc || []).map(x => [x.proj].concat(comStand ? [stand(x.proj)] : [], [x.cat, x.qtd, x.qtd - 3, feceg ? notasBtn(x) : x.notas]));
+        return aviso +
+            `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
+            tabelaSimples(cabDup, linDup, 'Nenhuma duplicidade encontrada.') +
+            `<h3>⚠️ Projetos com menos de 3 avaliações (fora do ranking)</h3>` +
+            tabelaSimples(cabInc, linInc, 'Todos os projetos têm 3 ou mais avaliações.') +
+            `<h3>⚠️ Projetos com mais de ${LIMITE_EXCESSO} avaliações (continuam no ranking, com as 3 melhores notas)</h3>` +
+            tabelaSimples(cabExc, linExc, `Nenhum projeto com mais de ${LIMITE_EXCESSO} avaliações.`);
+    }
+
+    // Exclusão permanente: pede ao Apps Script (planilha de avaliações) para apagar a linha, conferindo projeto e avaliador antes
+    function salvarUrlExclusao(v) { try { localStorage.setItem('scti01_del_feceg', String(v || '').trim()); } catch (e) {} }
+
+    function excluirAvaliacao(i) {
+        const e = regExcl[i];
+        if (!e) return;
+        const campo = document.getElementById('del-feceg');
+        const url = campo ? campo.value.trim() : '';
+        if (!/^https:\/\/script\.google\.com\//.test(url)) { alert('Cole, no card da FECEG, a URL do Apps Script de exclusão (a que termina em /exec).'); return; }
+        if (Date.now() < bloqueioExcl) { alert('Aguarde alguns segundos: o painel está atualizando depois da última exclusão.'); return; }
+        if (!confirm(`EXCLUIR PERMANENTEMENTE esta avaliação?\n\nAvaliador: ${e.aval}\nProjeto: ${e.proj}\nAba: ${e.aba}\nLinha: ${e.linha}\nNota total: ${e.nota.toFixed(1)}\n\nA linha será apagada da planilha de avaliações e NÃO poderá ser desfeita.`)) return;
+        const senha = senhaExcl || prompt('Senha de exclusão (a mesma definida no Apps Script):');
+        if (!senha) return;
+        const st = document.getElementById('sync-status');
+        st.innerHTML = '⏳ Excluindo avaliação...';
+        fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ acao: 'excluir', senha, aba: e.aba, linha: e.linha, projeto: e.proj, avaliador: e.aval === 'Desconhecido' ? '' : e.aval, esperadas: e.iguais }) })
+            .then(r => r.json())
+            .then(res => {
+                if (res && res.ok) {
+                    senhaExcl = senha; bloqueioExcl = Date.now() + 6000;
+                    st.innerHTML = `🗑️ ${esc(res.msg || 'Avaliação excluída.')} Atualizando o painel...`;
+                    setTimeout(() => { if (intervaloSync) executarCicloSincronizacao(); }, 2500);
+                } else {
+                    const msg = (res && res.erro) || 'resposta inválida do Apps Script.';
+                    if (/senha/i.test(msg)) senhaExcl = '';
+                    st.innerHTML = '⚠️ Avaliação NÃO excluída: ' + esc(msg);
+                    alert('Avaliação NÃO excluída: ' + msg);
+                }
+            })
+            .catch(() => {
+                st.innerHTML = '⚠️ Não consegui falar com o Apps Script de exclusão.';
+                alert('Não consegui falar com o Apps Script de exclusão. Confira a URL e se a implantação está como "Qualquer pessoa" (aplicativo da Web).');
+            });
+    }
+
     // ===== Renderização =====
     function selecionarAba(k, i) {
         abaAtiva[k] = abasRender[k][i];
@@ -472,7 +781,7 @@ th,td{padding:8px}
     function tabelaSimples(cabs, linhas, vazio) {
         if (!linhas.length) return `<div class="empty-message">${vazio}</div>`;
         return `<table><thead><tr>${cabs.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
-            linhas.map(l => `<tr>${l.map((c, i) => `<td>${cabs[i] === 'Avaliador: Nota' ? c : esc(c)}</td>`).join('')}</tr>`).join('') + `</tbody></table>`;
+            linhas.map(l => `<tr>${l.map((c, i) => `<td>${['Avaliador: Nota', 'Ação'].includes(cabs[i]) ? c : esc(c)}</td>`).join('')}</tr>`).join('') + `</tbody></table>`;
     }
  
     function msgPremio(tipo, d) {
@@ -493,6 +802,8 @@ th,td{padding:8px}
     function corpoAvaliacoes(k, d, modo) {
         const f = norm(filtroAval[k] || '');
         const casa = s => !f || norm(s).includes(f);
+        const feceg = k === 'feceg', dist = feceg ? distAtual() : null, comStand = !!dist; // Stand só na FECEG, quando a planilha de distribuição foi carregada
+        const celStand = p => { const dp = achaProjDist(dist, p.proj); return dp ? standHtml(dp) : '<span class="pending">—</span>'; };
         const porAval = {};
         (d.avals || []).forEach(l => { (porAval[l.aval] = porAval[l.aval] || new Set()).add(l.proj); });
         const linhasAv = Object.keys(porAval).sort((a, b) => a.localeCompare(b)).map(a => {
@@ -504,12 +815,13 @@ th,td{padding:8px}
         const projsF = projsAll.filter(p => casa(p.proj) || casa(p.inst) || p.avals.some(casa)).sort((a, b) => (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
         const lib = projsAll.filter(p => p.qtd >= 3).length;
         const caixa = `<div class="no-print" style="margin:10px 0 0 14px"><input type="text" id="fil-aval-${k}" class="sync-input" style="width:100%;max-width:420px;box-sizing:border-box" placeholder="🔍 Pesquisar avaliador ou projeto..." value="${esc(filtroAval[k] || '')}" oninput="filtrarAvaliacoes('${k}', this.value)"></div>`;
-        const tAval = linhasAv.length
+        const tAvalOrig = linhasAv.length
             ? `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:100px">Projetos</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
               linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
-        const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
-            lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
+        const tAval = feceg ? tabelaAvalFeceg(k, d, dist, casa) : tAvalOrig;
+        const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${comStand ? '<th style="width:130px">Stand</th>' : ''}${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+            lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${comStand ? `<td>${celStand(p)}</td>` : ''}${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
         // ONIBUS: com dados extras carregados, separa os projetos por instituição
         const SEM_INST = 'Sem instituição informada';
         const porInst = {};
@@ -535,6 +847,8 @@ th,td{padding:8px}
     }
 
     function renderizarTabelas() {
+        regExcl.length = 0;
+        atualizarInfoDist();
         let html = '';
         Object.keys(NUC).forEach(k => {
             const d = dadosGlobais[k], n = NUC[k];
@@ -550,15 +864,9 @@ th,td{padding:8px}
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
-            abas.push({ key: 'aval', rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
-            abas.push({ key: 'onibus', rot: '🚌 ONIBUS', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
-            abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () =>
-                `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
-                tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
-                `<h3>⚠️ Projetos com menos de 3 avaliações (fora do ranking)</h3>` +
-                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota'], d.inc.map(x => [x.proj, x.cat, x.qtd, 3 - x.qtd, x.notas]), 'Todos os projetos têm 3 ou mais avaliações.') +
-                `<h3>⚠️ Projetos com mais de ${LIMITE_EXCESSO} avaliações (continuam no ranking, com as 3 melhores notas)</h3>` +
-                tabelaSimples(['Projeto', 'Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota'], (d.exc || []).map(x => [x.proj, x.cat, x.qtd, x.qtd - 3, x.notas]), `Nenhum projeto com mais de ${LIMITE_EXCESSO} avaliações.`) });
+            abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
+            abas.push({ key: 'onibus', op: true, rot: '🚌 ONIBUS', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
+            abas.push({ key: 'alert', op: true, rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () => corpoAlertas(k, d) });
  
             if (k === 'feceg') {
                 const pr = d.premiacoes || {};
@@ -575,7 +883,9 @@ th,td{padding:8px}
  
             abasRender[k] = abas.map(a => a.key);
             if (!abasRender[k].includes(abaAtiva[k])) abaAtiva[k] = 'geral';
-            html += `<div class="tabs no-print">` + abas.map((a, i) => `<button class="tab ${a.key === abaAtiva[k] ? 'active' : ''}" onclick="selecionarAba('${k}', ${i})">${esc(a.rot)}</button>`).join('') + `</div>`;
+            const btnAba = (a, i) => `<button class="tab ${a.op ? 'op' : ''} ${a.key === abaAtiva[k] ? 'active' : ''}" onclick="selecionarAba('${k}', ${i})">${esc(a.rot)}</button>`;
+            html += `<div class="tabs-grupo no-print"><span class="tabs-rot">🏆 Rankings</span><div class="tabs">` + abas.map((a, i) => a.op ? '' : btnAba(a, i)).join('') + `</div></div>`;
+            html += `<div class="tabs-grupo no-print"><span class="tabs-rot op">⚙️ Operacional</span><div class="tabs">` + abas.map((a, i) => a.op ? btnAba(a, i) : '').join('') + `</div></div>`;
             html += abas.find(a => a.key === abaAtiva[k]).corpo();
         });
         // Mantém o foco no campo de pesquisa durante a atualização automática
@@ -617,10 +927,13 @@ th,td{padding:8px}
         if (!confirm("Deseja interromper a sincronização ativa e zerar o painel?")) return;
         if (intervaloSync) clearInterval(intervaloSync);
         limparEstado();
+        distLink = null; distArq = null; distArqNome = ''; distErro = '';
         Object.keys(NUC).forEach(k => {
             document.getElementById('url-' + k).value = "";
             const ext = document.getElementById('ext-' + k);
             if (ext) ext.value = "";
+            const dst = document.getElementById('dist-' + k); if (dst) dst.value = "";
+            const arq = document.getElementById('dist-arq-' + k); if (arq) arq.value = "";
             abaEscolhida[k] = ''; filtroAval[k] = '';
             const selAba = document.getElementById('aba-' + k);
             if (selAba) { selAba.dataset.abas = ''; selAba.innerHTML = OPT_TODAS; }
