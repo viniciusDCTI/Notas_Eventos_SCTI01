@@ -469,7 +469,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
     }
 
     // Aba Avaliações: filtro por avaliador/projeto, lista "Avaliador: projeto 1, projeto 2" e situação (verde + Liberado a partir da 3ª avaliação)
-    function corpoAvaliacoes(k, d) {
+    function corpoAvaliacoes(k, d, modo) {
         const f = norm(filtroAval[k] || '');
         const casa = s => !f || norm(s).includes(f);
         const porAval = {};
@@ -480,7 +480,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             return sel.length ? [a, sel] : null;
         }).filter(Boolean);
         const projsAll = d.projs || [];
-        const projsF = projsAll.filter(p => casa(p.proj) || p.avals.some(casa)).sort((a, b) => a.proj.localeCompare(b.proj));
+        const projsF = projsAll.filter(p => casa(p.proj) || p.avals.some(casa)).sort((a, b) => (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
         const lib = projsAll.filter(p => p.qtd >= 3).length;
         const caixa = `<div class="no-print" style="margin:10px 0 0 14px"><input type="text" id="fil-aval-${k}" class="sync-input" style="width:100%;max-width:420px;box-sizing:border-box" placeholder="🔍 Pesquisar avaliador ou projeto..." value="${esc(filtroAval[k] || '')}" oninput="filtrarAvaliacoes('${k}', this.value)"></div>`;
         const tAval = linhasAv.length
@@ -491,9 +491,8 @@ tr:nth-child(even) td{background-color:#f8fafc}
             ? `<table><thead><tr><th>Projeto</th><th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
               projsF.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td><td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum projeto encontrado.</div>`;
-        return `<h3>📝 Avaliações</h3>` + caixa +
-            `<h3>👤 Avaliadores e seus projetos</h3>` + tAval +
-            `<h3>📋 Situação dos projetos — ${lib} de ${projsAll.length} liberados (3 ou mais avaliações)</h3>` + tProj;
+        if (modo === 'onibus') return `<h3>🚌 ONIBUS — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
+        return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
     }
 
     function avisoExtras(d) {
@@ -524,6 +523,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
             abas.push({ key: 'aval', rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
+            abas.push({ key: 'onibus', rot: '🚌 ONIBUS', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
             abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length})`, corpo: () =>
                 `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
                 tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
