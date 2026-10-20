@@ -701,7 +701,7 @@ th,td{padding:8px}
             r.itens.forEach(i => { const g = i.dp && i.dp.rodada ? i.dp.rodada : ''; (por[g] = por[g] || []).push(i); });
             Object.keys(por).forEach(g => (grupos[g] = grupos[g] || []).push(shape(r, por[g])));
         });
-        const chip = i => `<div class="pj ${i.feito ? '' : 'pj-pend'}"><span>${i.feito ? '✅' : '⏳'}</span>${i.dp && i.dp.stand ? `<span class="stand">Stand ${esc(i.dp.stand)}</span>` : ''}<span class="pj-t">${esc(i.titulo)}</span>${i.extra ? '<span class="tag-extra">fora da lista do avaliador</span>' : ''}${i.probs.map(p => `<span class="prob" title="Ver em Duplicados e Incompletos" onclick="irParaAba('${k}', 'alert')">⚠️ ${esc(p)}</span>`).join('')}</div>`;
+        const chip = i => `<div class="pj ${i.feito ? '' : 'pj-pend'}"><span>${i.feito ? '✅' : '⏳'}</span>${i.dp && i.dp.stand ? `<span class="stand">Stand ${esc(i.dp.stand)}</span>` : ''}${i.dp && i.dp.id ? `<span class="pj-r"><strong>ID ${esc(i.dp.id)}</strong></span>` : ''}<span class="pj-t">${esc(i.titulo)}</span>${i.extra ? '<span class="tag-extra">fora da lista do avaliador</span>' : ''}${i.probs.map(p => `<span class="prob" title="Ver em Duplicados e Incompletos" onclick="irParaAba('${k}', 'alert')">⚠️ ${esc(p)}</span>`).join('')}</div>`;
         const contador = s => {
             const extras = s.itens.filter(i => i.extra).length;
             let h = s.total > 0
@@ -713,7 +713,7 @@ th,td{padding:8px}
         };
         const tabela = lista => {
             const vis = lista.map(s => {
-                const itens = casa(s.r.nome) ? s.itens : s.itens.filter(i => casa(i.titulo) || (i.dp && i.dp.stand && casa('stand ' + i.dp.stand)));
+                const itens = casa(s.r.nome) ? s.itens : s.itens.filter(i => casa(i.titulo) || (i.dp && ((i.dp.stand && casa('stand ' + i.dp.stand)) || casa('id ' + i.dp.id))));
                 return itens.length ? { s, itens } : null;
             }).filter(Boolean);
             if (!vis.length) return `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
@@ -737,15 +737,16 @@ th,td{padding:8px}
     function corpoAlertas(k, d) {
         const feceg = k === 'feceg', dist = feceg ? distAtual() : null, comStand = !!dist;
         const stand = t => { const dp = achaProjDist(dist, t); return dp && dp.stand ? dp.stand + (dp.rodada ? ' (' + dp.rodada + ')' : '') : '—'; };
+        const idDe = t => { const dp = achaProjDist(dist, t); return dp ? dp.id : '—'; };
         const notasBtn = x => x.evs.map(e => `<span style="white-space:nowrap">${esc(e.aval)}: ${e.nota.toFixed(1)} ${btnExcluir(e, 1)}</span>`).join(' | ');
         const aviso = feceg ? `<div class="instruction no-print" style="margin:4px 0 0 14px">🗑️ O botão <strong>Excluir</strong> apaga a linha da planilha de avaliações <strong>permanentemente</strong>. Ele só funciona com a URL do Apps Script de exclusão preenchida no card da FECEG.</div>` : '';
-        const cabDup = ['Aba', 'Avaliador', 'Projeto'].concat(comStand ? ['Stand'] : [], ['Nota total', 'Linha na planilha'], feceg ? ['Ação'] : []);
-        const linDup = d.dup.map(x => [x.aba, x.aval, x.proj].concat(comStand ? [stand(x.proj)] : [], [x.nota.toFixed(1), x.linhaReal || x.linha],
+        const cabDup = ['Aba', 'Avaliador', 'Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Nota total', 'Linha na planilha'], feceg ? ['Ação'] : []);
+        const linDup = d.dup.map(x => [x.aba, x.aval, x.proj].concat(comStand ? [idDe(x.proj), stand(x.proj)] : [], [x.nota.toFixed(1), x.linhaReal || x.linha],
             feceg ? [btnExcluir({ aba: x.aba, linha: x.linhaReal || x.linha, proj: x.proj, aval: x.aval, nota: x.nota }, x.iguais)] : []));
-        const cabInc = ['Projeto'].concat(comStand ? ['Stand'] : [], ['Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota']);
-        const linInc = d.inc.map(x => [x.proj].concat(comStand ? [stand(x.proj)] : [], [x.cat, x.qtd, 3 - x.qtd, feceg ? notasBtn(x) : x.notas]));
-        const cabExc = ['Projeto'].concat(comStand ? ['Stand'] : [], ['Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota']);
-        const linExc = (d.exc || []).map(x => [x.proj].concat(comStand ? [stand(x.proj)] : [], [x.cat, x.qtd, x.qtd - 3, feceg ? notasBtn(x) : x.notas]));
+        const cabInc = ['Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota']);
+        const linInc = d.inc.map(x => [x.proj].concat(comStand ? [idDe(x.proj), stand(x.proj)] : [], [x.cat, x.qtd, 3 - x.qtd, feceg ? notasBtn(x) : x.notas]));
+        const cabExc = ['Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota']);
+        const linExc = (d.exc || []).map(x => [x.proj].concat(comStand ? [idDe(x.proj), stand(x.proj)] : [], [x.cat, x.qtd, x.qtd - 3, feceg ? notasBtn(x) : x.notas]));
         return aviso +
             `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
             tabelaSimples(cabDup, linDup, 'Nenhuma duplicidade encontrada.') +
@@ -845,8 +846,8 @@ th,td{padding:8px}
               linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
         const tAval = feceg ? tabelaAvalFeceg(k, d, dist, casa) : tAvalOrig;
-        const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${comStand ? '<th style="width:130px">Stand</th>' : ''}${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
-            lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${comStand ? `<td>${celStand(p)}</td>` : ''}${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
+        const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${comStand ? '<th style="width:70px">ID</th><th style="width:130px">Stand</th>' : ''}${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+            lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${comStand ? `<td><strong>${esc((achaProjDist(dist, p.proj) || {}).id || '—')}</strong></td><td>${celStand(p)}</td>` : ''}${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
         // ONIBUS: com dados extras carregados, separa os projetos por instituição
         const SEM_INST = 'Sem instituição informada';
         const porInst = {};
