@@ -43,6 +43,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .ind-on{background-color:#c6f6d5;color:#22543d}
 .actions-bar{margin-bottom:15px;text-align:right}
 .status-badge{font-size:13px;font-weight:bold;color:#2c5282;margin-top:12px;display:block;background:#fff;padding:8px;border-radius:6px;border:1px solid #e2e8f0}
+.liberado td{background-color:#c6f6d5 !important;color:#22543d}
+.badge-lib{font-weight:bold;color:#22543d}
+.badge-falta{font-weight:bold;color:#92400e}
 .empty-message{text-align:center;padding:30px;color:#94a3b8;font-style:italic;border:1px dashed #e2e8f0;border-radius:6px;margin-bottom:30px}
 #rankings-container:empty{display:none}
 @media print{.no-print{display:none}body{background:#fff;padding:0}.container{box-shadow:none;padding:0}}
@@ -98,7 +101,26 @@ tr:nth-child(even) td{background-color:#f8fafc}
     let dadosGlobais = {};
     let intervaloSync = null;
     let urlsExport = {};
-    let abaAtiva = {}, abasRender = {};
+    let abaAtiva = {}, abasRender = {}, abaEscolhida = {}, filtroAval = {};
+    const OPT_TODAS = '<option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option>';
+    // Abas da planilha usadas no ranking: a escolhida ou, por padrão, todas juntas
+    function abasUsadas(wb, k) {
+        return abaEscolhida[k] && wb.SheetNames.includes(abaEscolhida[k]) ? [abaEscolhida[k]] : wb.SheetNames;
+    }
+    function atualizarSeletorAbas(k, nomes) {
+        const s = document.getElementById('aba-' + k);
+        if (!s) return;
+        const chave = nomes.join('|');
+        if (s.dataset.abas === chave) return;
+        s.dataset.abas = chave;
+        s.innerHTML = OPT_TODAS + nomes.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+        s.value = abaEscolhida[k] && nomes.includes(abaEscolhida[k]) ? abaEscolhida[k] : '';
+    }
+    function escolherAba(k, v) {
+        abaEscolhida[k] = v;
+        if (intervaloSync) executarCicloSincronizacao();
+    }
+    function filtrarAvaliacoes(k, v) { filtroAval[k] = v; renderizarTabelas(); }
     const TOP_N = 10;
     const expandidas = {}; // tabelas com a lista completa aberta (guardado para não fechar na atualização automática)
     function alternarExpansao(id) { expandidas[id] = !expandidas[id]; renderizarTabelas(); }
@@ -113,6 +135,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             <div class="preset-title"><span>${NUC[k].nome}</span><span id="ind-${k}" class="indicator ind-off">Desconectado</span></div>
             <button class="btn btn-small btn-success" onclick="carregarLinkSalvo('${k}')">📋 Usar Link Salvo</button>
             <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
+            <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">Aba do ranking:</label><select id="aba-${k}" class="sync-input" onchange="escolherAba('${k}', this.value)"><option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option></select></div>
             ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
         </div>`).join('');
  
@@ -120,7 +143,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
     renderizarTabelas();
  
     function limparEstado() {
-        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], gruposEnsino: [], inst: [], orient: [], dup: [], inc: [] });
+        Object.keys(NUC).forEach(k => dadosGlobais[k] = { geral: [], grupos: [], gruposEnsino: [], inst: [], orient: [], dup: [], inc: [], avals: [], projs: [] });
         urlsExport = {};
     }
  
@@ -166,7 +189,8 @@ tr:nth-child(even) td{background-color:#f8fafc}
     function executarCicloSincronizacao() {
         const promessas = Object.keys(NUC).filter(k => urlsExport[k]).map(k =>
             baixar(urlsExport[k]).then(wb => {
-                if (!NUC[k].proj) return { geral: processarAbaEspecifica(wb), grupos: [], ign: 0 };
+                atualizarSeletorAbas(k, wb.SheetNames);
+                if (!NUC[k].proj) return { geral: processarAbaEspecifica(wb, k), grupos: [], ign: 0 };
                 const extP = urlsExport[k + 'x']
                     ? baixar(urlsExport[k + 'x']).then(x => ({ ext: lerExtras(x), est: 'ok' })).catch(() => ({ ext: {}, est: 'erro' }))
                     : Promise.resolve().then(() => ({ ext: lerExtras(wb), est: 'sem-link' }));
@@ -187,7 +211,8 @@ tr:nth-child(even) td{background-color:#f8fafc}
     }
  
     // ===== Hackathon e Pitch4GRU (lógica original mantida) =====
-    function processarAbaEspecifica(workbook) {
+    function processarAbaEspecifica(workbook, k) {
+        workbook = { SheetNames: abasUsadas(workbook, k), Sheets: workbook.Sheets };
         let lista = [];
         workbook.SheetNames.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
@@ -263,6 +288,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
  
     function linhasAvaliacao(wb, k) {
         const out = [];
+        wb = { SheetNames: abasUsadas(wb, k), Sheets: wb.Sheets };
         wb.SheetNames.forEach(sn => {
             const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null });
             if (!rows.length) return;
@@ -404,7 +430,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
         }
         return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
                  gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes, diag,
-                 inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient) };
+                 inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient),
+                 avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba })),
+                 projs: Object.values(porProjeto).map(p => ({ proj: p.equipe, cat: p.cat, qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
     }
  
     // ===== Renderização =====
@@ -440,6 +468,34 @@ tr:nth-child(even) td{background-color:#f8fafc}
         return `<div class="empty-message">${t}</div>`;
     }
 
+    // Aba Avaliações: filtro por avaliador/projeto, lista "Avaliador: projeto 1, projeto 2" e situação (verde + Liberado a partir da 3ª avaliação)
+    function corpoAvaliacoes(k, d) {
+        const f = norm(filtroAval[k] || '');
+        const casa = s => !f || norm(s).includes(f);
+        const porAval = {};
+        (d.avals || []).forEach(l => { (porAval[l.aval] = porAval[l.aval] || new Set()).add(l.proj); });
+        const linhasAv = Object.keys(porAval).sort((a, b) => a.localeCompare(b)).map(a => {
+            const projs = [...porAval[a]];
+            const sel = casa(a) ? projs : projs.filter(casa);
+            return sel.length ? [a, sel] : null;
+        }).filter(Boolean);
+        const projsAll = d.projs || [];
+        const projsF = projsAll.filter(p => casa(p.proj) || p.avals.some(casa)).sort((a, b) => a.proj.localeCompare(b.proj));
+        const lib = projsAll.filter(p => p.qtd >= 3).length;
+        const caixa = `<div class="no-print" style="margin:10px 0 0 14px"><input type="text" id="fil-aval-${k}" class="sync-input" style="width:100%;max-width:420px;box-sizing:border-box" placeholder="🔍 Pesquisar avaliador ou projeto..." value="${esc(filtroAval[k] || '')}" oninput="filtrarAvaliacoes('${k}', this.value)"></div>`;
+        const tAval = linhasAv.length
+            ? `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:100px">Projetos</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
+              linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
+            : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
+        const tProj = projsF.length
+            ? `<table><thead><tr><th>Projeto</th><th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+              projsF.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td><td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`
+            : `<div class="empty-message">Nenhum projeto encontrado.</div>`;
+        return `<h3>📝 Avaliações</h3>` + caixa +
+            `<h3>👤 Avaliadores e seus projetos</h3>` + tAval +
+            `<h3>📋 Situação dos projetos — ${lib} de ${projsAll.length} liberados (3 ou mais avaliações)</h3>` + tProj;
+    }
+
     function avisoExtras(d) {
         const x = d.extInfo; if (!x) return '';
         let m = '';
@@ -467,6 +523,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
+            abas.push({ key: 'aval', rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'alert', rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length})`, corpo: () =>
                 `<h3>⚠️ Avaliações duplicadas — mesmo avaliador e projeto na mesma aba</h3>` +
                 tabelaSimples(['Aba', 'Avaliador', 'Projeto', 'Nota total', 'Linha na planilha'], d.dup.map(x => [x.aba, x.aval, x.proj, x.nota.toFixed(1), x.linha]), 'Nenhuma duplicidade encontrada.') +
@@ -491,7 +548,11 @@ tr:nth-child(even) td{background-color:#f8fafc}
             html += `<div class="tabs no-print">` + abas.map((a, i) => `<button class="tab ${a.key === abaAtiva[k] ? 'active' : ''}" onclick="selecionarAba('${k}', ${i})">${esc(a.rot)}</button>`).join('') + `</div>`;
             html += abas.find(a => a.key === abaAtiva[k]).corpo();
         });
+        // Mantém o foco no campo de pesquisa durante a atualização automática
+        const ae = document.activeElement;
+        const foco = ae && ae.id && ae.id.indexOf('fil-aval-') === 0 ? { id: ae.id, p: ae.selectionStart } : null;
         document.getElementById('rankings-container').innerHTML = html;
+        if (foco) { const el = document.getElementById(foco.id); if (el) { el.focus(); try { el.setSelectionRange(foco.p, foco.p); } catch (e) {} } }
     }
  
     function criarEstruturaTabela(id, dados) {
@@ -530,6 +591,9 @@ tr:nth-child(even) td{background-color:#f8fafc}
             document.getElementById('url-' + k).value = "";
             const ext = document.getElementById('ext-' + k);
             if (ext) ext.value = "";
+            abaEscolhida[k] = ''; filtroAval[k] = '';
+            const selAba = document.getElementById('aba-' + k);
+            if (selAba) { selAba.dataset.abas = ''; selAba.innerHTML = OPT_TODAS; }
             setInd(k, false, "Desconectado");
         });
         document.getElementById('sync-status').innerHTML = "❌ Sincronização interrompida. Painel limpo.";
