@@ -432,7 +432,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
                  gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, podio, premiacoes, diag,
                  inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient),
                  avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba })),
-                 projs: Object.values(porProjeto).map(p => ({ proj: p.equipe, cat: p.cat, qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
+                 projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
     }
  
     // ===== Renderização =====
@@ -480,7 +480,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
             return sel.length ? [a, sel] : null;
         }).filter(Boolean);
         const projsAll = d.projs || [];
-        const projsF = projsAll.filter(p => casa(p.proj) || p.avals.some(casa)).sort((a, b) => (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
+        const projsF = projsAll.filter(p => casa(p.proj) || casa(p.inst) || p.avals.some(casa)).sort((a, b) => (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
         const lib = projsAll.filter(p => p.qtd >= 3).length;
         const caixa = `<div class="no-print" style="margin:10px 0 0 14px"><input type="text" id="fil-aval-${k}" class="sync-input" style="width:100%;max-width:420px;box-sizing:border-box" placeholder="🔍 Pesquisar avaliador ou projeto..." value="${esc(filtroAval[k] || '')}" oninput="filtrarAvaliacoes('${k}', this.value)"></div>`;
         const tAval = linhasAv.length
@@ -488,8 +488,8 @@ tr:nth-child(even) td{background-color:#f8fafc}
               linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
         const tProj = projsF.length
-            ? `<table><thead><tr><th>Projeto</th><th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
-              projsF.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td><td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`
+            ? `<table><thead><tr><th>Projeto</th><th>Instituição</th><th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+              projsF.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td><td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td><td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum projeto encontrado.</div>`;
         if (modo === 'onibus') return `<h3>🚌 ONIBUS — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
         return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
