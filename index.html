@@ -909,7 +909,10 @@ th,td{padding:8px}
             const sel = casa(a) ? projs : projs.filter(casa);
             return sel.length ? [a, sel] : null;
         }).filter(Boolean);
-        const projsAll = d.projs || [];
+        const projsTodos = d.projs || [];
+        // Situação: projeto com mais de 4 avaliações sai desta lista e vai para a aba Duplicados e Incompletos
+        const projsAll = modo === 'onibus' ? projsTodos.filter(p => p.qtd <= LIMITE_EXCESSO) : projsTodos;
+        const nExc = projsTodos.length - projsAll.length;
         // O filtro também pega o ID (e o Stand) do projeto na planilha de distribuição
         const casaProj = p => { const dp = dist ? achaProjDist(dist, p.proj) : null; return casa(p.proj) || casa(p.inst) || p.avals.some(casa) || (!!dp && (casa(dp.id) || casa('id ' + dp.id) || (!!dp.stand && casa('stand ' + dp.stand)))); };
         const projsF = projsAll.filter(casaProj).sort((a, b) => (b.qtd > 0) - (a.qtd > 0) || (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
@@ -931,7 +934,7 @@ th,td{padding:8px}
                 ? Object.keys(porInst).sort((a, b) => (a === SEM_INST) - (b === SEM_INST) || a.localeCompare(b)).map(i =>
                     `<h3>🏫 ${esc(i)} — ${porInst[i].filter(p => p.qtd >= 3).length} de ${porInst[i].length} liberados</h3>` + tabProj(porInst[i], true)).join('')
                 : tabProj(projsF, false);
-        if (modo === 'onibus') return `<h3>📋 Situação — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
+        if (modo === 'onibus') return `<h3>📋 Situação — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + (nExc ? `<div class="instruction" style="margin:4px 0 0 14px">⚠️ ${nExc} projeto(s) com mais de ${LIMITE_EXCESSO} avaliações foram para a aba <a href="#" onclick="irParaAba('${k}', 'alert'); return false;">Duplicados e Incompletos</a>.</div>` : '') + caixa + tProj;
         return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
     }
 
@@ -939,30 +942,43 @@ th,td{padding:8px}
     const TOTAL_STANDS = 54;
     function corpoStatus(k, d) {
         const dist = distAtual();
-        const porStand = {};
+        const porRod = {}; // rodada -> stand -> [{dp, qtd}]
         if (dist) {
+            const rodNomes = [...new Set(dist.projs.filter(p => p.stand && p.rodada).map(p => p.rodada))];
             const avDe = new Map();
             (d.avals || []).forEach(l => {
                 const dp = achaProjDist(dist, l.proj);
-                if (dp) { if (!avDe.has(dp)) avDe.set(dp, new Set()); avDe.get(dp).add(norm(l.aval)); }
+                if (!dp) return;
+                // a avaliação só conta na rodada da própria aba (se o nome da aba não lembrar nenhuma rodada, conta direto)
+                if (dp.rodada && rodNomes.some(r => mesmaRodada(l.aba, r)) && !mesmaRodada(l.aba, dp.rodada)) return;
+                if (!avDe.has(dp)) avDe.set(dp, new Set());
+                avDe.get(dp).add(norm(l.aval));
             });
             dist.projs.forEach(dp => {
                 const n = parseInt(String(dp.stand || '').replace(/\D/g, ''), 10);
                 if (!n || n < 1 || n > TOTAL_STANDS) return;
-                (porStand[n] = porStand[n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0 });
+                const r = dp.rodada || '';
+                ((porRod[r] = porRod[r] || {})[n] = porRod[r][n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0 });
             });
         }
-        let com = 0, cards = '';
-        for (let n = 1; n <= TOTAL_STANDS; n++) {
-            const itens = porStand[n] || [], ok = itens.some(i => i.qtd > 0);
-            if (ok) com++;
-            const det = itens.length
-                ? itens.map(i => `<div class="st-item">ID ${esc(i.dp.id)}${i.dp.rodada ? ' · ' + esc(i.dp.rodada) : ''}<br>${i.qtd > 0 ? '✅ ' + i.qtd + ' avaliaç' + (i.qtd > 1 ? 'ões' : 'ão') : '❌ sem nota'}</div>`).join('')
-                : `<div class="st-item">${dist ? 'sem projeto na distribuição' : 'sem nota'}</div>`;
-            cards += `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">Stand</div><div class="st-num">${n}</div>${det}</div>`;
-        }
+        let rods = Object.keys(porRod).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+        const sel = abaEscolhida[k] || '';
+        if (sel && rods.some(r => r && mesmaRodada(sel, r))) rods = rods.filter(r => r && mesmaRodada(sel, r));
+        if (!rods.length) rods = [''];
         const aviso = dist ? '' : `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Planilha de distribuição não carregada: todos os stands aparecem em vermelho. Carregue o link da distribuição para o painel casar cada stand com seu projeto.</div>`;
-        return `<h3>🚦 Status dos Stands — <span class="badge-lib">${com}</span> de ${TOTAL_STANDS} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOTAL_STANDS - com}</span> sem nota</h3>` + aviso + `<div class="st-grid">${cards}</div>`;
+        return aviso + rods.map(r => {
+            const mapa = porRod[r] || {};
+            let com = 0, cards = '';
+            for (let n = 1; n <= TOTAL_STANDS; n++) {
+                const itens = mapa[n] || [], ok = itens.some(i => i.qtd > 0);
+                if (ok) com++;
+                const det = itens.length
+                    ? itens.map(i => `<div class="st-item">ID ${esc(i.dp.id)}<br>${i.qtd > 0 ? '✅ ' + i.qtd + ' avaliaç' + (i.qtd > 1 ? 'ões' : 'ão') : '❌ sem nota'}</div>`).join('')
+                    : `<div class="st-item">${dist ? 'sem projeto na distribuição' : 'sem nota'}</div>`;
+                cards += `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">Stand</div><div class="st-num">${n}</div>${det}</div>`;
+            }
+            return `<h3>🚦 Status dos Stands${r ? ' — ' + esc(r) : ''} — <span class="badge-lib">${com}</span> de ${TOTAL_STANDS} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOTAL_STANDS - com}</span> sem nota</h3><div class="st-grid">${cards}</div>`;
+        }).join('');
     }
 
     // Título da planilha de dados que ainda não casou com nenhum projeto e mais se parece com o título informado
