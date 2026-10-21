@@ -385,8 +385,12 @@ th,td{padding:8px}
     // "Ensino Médio" e "Ensino Médio 1" são o mesmo grupo: unifica o nome
     function unirGrupo(t) {
         const x = String(t || '').trim();
-        return /^ensino medio(\s*[-–]?\s*1)?$/.test(semAcento(x)) ? 'Ensino Médio' : x;
+        if (/^ensino medio(\s*[-–]?\s*1)?$/.test(semAcento(x))) return 'Ensino Médio';
+        // Mesmo nome escrito com traço, espaço, acento ou "º"/"°" diferentes vira um grupo só (vale a primeira grafia encontrada)
+        const ch = chaveNome(x);
+        return ch ? (nomesGrupo[ch] = nomesGrupo[ch] || x) : x;
     }
+    const nomesGrupo = {};
  
     function linhasAvaliacao(wb, k) {
         const out = [];
@@ -513,6 +517,13 @@ th,td{padding:8px}
             gEnsino[t].forEach(x => { if (!jaTem.has(norm(x.equipe))) g[t].push(x); });
             g[t].sort((a, b) => b.total - a.total);
             delete gEnsino[t];
+        });
+        // Nível de Ensino com nome diferente (ex.: "Ensino Fundamental II") cujos projetos já estão todos numa Modalidade
+        // (ex.: "Ensino Fundamental II - Aprendiz (6º e 7º anos)") só repetiria a mesma lista: não cria a aba extra
+        Object.keys(gEnsino).forEach(t => {
+            const nomes = gEnsino[t].map(x => norm(x.equipe));
+            const repete = Object.values(g).some(l => { const ja = new Set(l.map(x => norm(x.equipe))); return nomes.every(n => ja.has(n)); });
+            if (repete) delete gEnsino[t];
         });
         // FECEG: instituições contadas só entre os projetos no pódio (1º ao 3º) de cada modalidade
         const podio = k === 'feceg';
