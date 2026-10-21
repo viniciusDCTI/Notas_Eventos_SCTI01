@@ -159,6 +159,7 @@ th,td{padding:8px}
     let senhaExcl = '', bloqueioExcl = 0;
     let ultimoHtml = null; // último HTML desenhado (evita redesenhar à toa a cada sincronização)
     const regExcl = []; // avaliações com botão de excluir na tela atual
+    const abasPlan = {}; // nomes das abas da planilha de avaliações de cada núcleo (usado no Status por auditório)
     const OPT_TODAS = '<option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option>';
     // Abas da planilha usadas no ranking: a escolhida ou, por padrão, todas juntas
     function abasUsadas(wb, k) {
@@ -289,6 +290,7 @@ th,td{padding:8px}
         const promessas = Object.keys(NUC).filter(k => urlsExport[k]).map(k =>
             baixar(urlsExport[k]).then(wb => {
                 atualizarSeletorAbas(k, wb.SheetNames);
+                abasPlan[k] = wb.SheetNames.slice();
                 if (!NUC[k].proj) return { geral: processarAbaEspecifica(wb, k), grupos: [], ign: 0 };
                 const extP = urlsExport[k + 'x']
                     ? baixar(urlsExport[k + 'x']).then(x => ({ ext: lerExtras(x), est: 'ok' })).catch(() => ({ ext: {}, est: 'erro' }))
@@ -960,7 +962,28 @@ th,td{padding:8px}
 
     // Aba Status (FECEG): os 54 stands em ordem. Vermelho = nenhuma nota ainda; verde = já entrou nota em algum projeto do stand
     const TOTAL_STANDS = 54;
+    // Status da SEMCITEC: um quadro por auditório (aba "Auditório 1", "Auditório 2"...), ignorando a aba da secretaria ("sec")
+    function corpoStatusAuditorios(k, d) {
+        const todas = abasPlan[k] || [];
+        const ehSec = n => /^sec(retaria)?$/.test(semAcento(String(n).trim()));
+        let abas = todas.filter(n => /^audit/.test(semAcento(String(n).trim())));
+        if (!abas.length) abas = todas.filter(n => !ehSec(n)); // sem abas "Auditório": usa todas, menos a "sec"
+        const num = n => parseInt(String(n).replace(/\D/g, ''), 10) || 0;
+        abas.sort((a, b) => (num(a) - num(b)) || String(a).localeCompare(String(b)));
+        const por = {};
+        (d.avals || []).forEach(l => { const e = por[l.aba] = por[l.aba] || { n: 0, p: new Set() }; e.n++; e.p.add(norm(l.proj)); });
+        const com = abas.filter(a => por[a]).length;
+        const cards = abas.map(a => {
+            const e = por[a], ok = !!e;
+            return `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(a)}</div><div class="st-item" style="font-size:12px;margin-top:8px">${ok ? `✅ ${e.n} avaliaç${e.n > 1 ? 'ões' : 'ão'}<br>${e.p.size} projeto${e.p.size > 1 ? 's' : ''}` : '❌ sem nota'}</div></div>`;
+        }).join('');
+        const sel = abaEscolhida[k] ? `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Está selecionada a aba "${esc(abaEscolhida[k])}" em "Aba do ranking": os outros auditórios aparecem sem nota. Escolha "Todas as abas juntas" para ver o quadro completo.</div>` : '';
+        if (!abas.length) return `<div class="empty-message">Nenhuma aba de auditório encontrada na planilha de avaliações.</div>`;
+        return `<h3>🚦 Status dos Auditórios — <span class="badge-lib">${com}</span> de ${abas.length} já com nota · <span style="color:#9b2c2c;font-weight:bold">${abas.length - com}</span> sem nota</h3>` + sel + `<div class="st-grid">${cards}</div>`;
+    }
+
     function corpoStatus(k, d) {
+        if (k === 'semcitec') return corpoStatusAuditorios(k, d);
         const dist = distAtual(k);
         // FECEG tem 54 stands; nos outros núcleos vale o maior número de stand da distribuição
         const maxSt = dist ? Math.max(0, ...dist.projs.map(p => parseInt(String(p.stand || '').replace(/\D/g, ''), 10) || 0)) : 0;
@@ -1135,6 +1158,7 @@ th,td{padding:8px}
         if (intervaloSync) clearInterval(intervaloSync);
         limparEstado();
         Object.keys(DST).forEach(x => delete DST[x]);
+        Object.keys(abasPlan).forEach(x => delete abasPlan[x]);
         Object.keys(NUC).forEach(k => {
             document.getElementById('url-' + k).value = "";
             const ext = document.getElementById('ext-' + k);
