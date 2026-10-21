@@ -65,6 +65,14 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .prob-linha{margin-top:6px}
 .tag-extra{display:inline-block;background:#e0f2fe;color:#075985;border:1px solid #bae6fd;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:bold}
 .row-prob td:first-child{box-shadow:inset 4px 0 0 #dd6b20}
+/* Aba Status: 54 stands (vermelho = sem nota, verde = já tem nota) */
+.st-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin:12px 0 30px}
+.st-card{border-radius:8px;padding:10px 8px;border:2px solid;text-align:center}
+.st-no{background:#fed7d7;border-color:#e53e3e;color:#9b2c2c}
+.st-ok{background:#c6f6d5;border-color:#2f855a;color:#22543d}
+.st-n{font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;opacity:.8}
+.st-num{font-size:30px;font-weight:bold;line-height:1.1}
+.st-item{font-size:11px;margin-top:4px;line-height:1.3}
 /* Celular: só ajusta telas estreitas; o computador não muda */
 @media (max-width:768px){
 body{padding:8px}
@@ -712,7 +720,7 @@ th,td{padding:8px}
                 itens.push({ dp, titulo: f.proj, feito: true, atrib: false, extra: !!(dist && r.atrib.length && !(dp && r.atrib.includes(dp))), probs: probDe(f.aval, f.proj) });
             });
             const ordem = i => i.dp && i.dp.rodada ? i.dp.rodada : '~', sn = i => Number(i.dp && i.dp.stand) || 9999;
-            itens.sort((a, b) => (a.extra - b.extra) || ordem(a).localeCompare(ordem(b)) || (sn(a) - sn(b)) || String(a.titulo).localeCompare(String(b.titulo)));
+            itens.sort((a, b) => (b.feito - a.feito) || (a.extra - b.extra) || ordem(a).localeCompare(ordem(b)) || (sn(a) - sn(b)) || String(a.titulo).localeCompare(String(b.titulo)));
             const total = r.atrib.length;
             return Object.assign(r, { itens, done, total, concl: total > 0 && done >= total, nprob: itens.filter(i => i.probs.length).length });
         }).sort((a, b) => a.nome.localeCompare(b.nome));
@@ -772,6 +780,9 @@ th,td{padding:8px}
                 return itens.length ? { s, itens } : null;
             }).filter(Boolean);
             if (!vis.length) return `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
+            // Quem já tem avaliação feita aparece primeiro (a ordem por nome é mantida dentro de cada grupo)
+            const feitosDe = v => v.itens.filter(i => i.feito).length;
+            vis.sort((a, b) => (feitosDe(b) > 0) - (feitosDe(a) > 0));
             return `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:170px">${dist ? 'Avaliações no período (feitas/atribuídas)' : 'Projetos'}</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
                 vis.map(({ s, itens }) => `<tr class="${s.concl ? 'liberado' : ''} ${s.nprob ? 'row-prob' : ''}"><td><strong>${esc(s.r.nome)}</strong>${dist && s.r.total > 0 && !filtrado ? `<span class="evaluator-name" style="font-style:normal">Total geral: ${s.r.done}/${s.r.total}</span>` : ''}</td><td style="text-align:center">${contador(s)}</td><td>${itens.map(chip).join('')}</td></tr>`).join('') + `</tbody></table>`;
         };
@@ -899,7 +910,9 @@ th,td{padding:8px}
             return sel.length ? [a, sel] : null;
         }).filter(Boolean);
         const projsAll = d.projs || [];
-        const projsF = projsAll.filter(p => casa(p.proj) || casa(p.inst) || p.avals.some(casa)).sort((a, b) => (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
+        // O filtro também pega o ID (e o Stand) do projeto na planilha de distribuição
+        const casaProj = p => { const dp = dist ? achaProjDist(dist, p.proj) : null; return casa(p.proj) || casa(p.inst) || p.avals.some(casa) || (!!dp && (casa(dp.id) || casa('id ' + dp.id) || (!!dp.stand && casa('stand ' + dp.stand)))); };
+        const projsF = projsAll.filter(casaProj).sort((a, b) => (b.qtd > 0) - (a.qtd > 0) || (b.qtd >= 3) - (a.qtd >= 3) || a.proj.localeCompare(b.proj));
         const lib = projsAll.filter(p => p.qtd >= 3).length;
         const caixa = `<div class="no-print" style="margin:10px 0 0 14px"><input type="text" id="fil-aval-${k}" class="sync-input" style="width:100%;max-width:420px;box-sizing:border-box" placeholder="🔍 Pesquisar avaliador ou projeto..." value="${esc(filtroAval[k] || '')}" oninput="filtrarAvaliacoes('${k}', this.value)"></div>`;
         const tAvalOrig = linhasAv.length
@@ -920,6 +933,36 @@ th,td{padding:8px}
                 : tabProj(projsF, false);
         if (modo === 'onibus') return `<h3>📋 Situação — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
         return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
+    }
+
+    // Aba Status (FECEG): os 54 stands em ordem. Vermelho = nenhuma nota ainda; verde = já entrou nota em algum projeto do stand
+    const TOTAL_STANDS = 54;
+    function corpoStatus(k, d) {
+        const dist = distAtual();
+        const porStand = {};
+        if (dist) {
+            const avDe = new Map();
+            (d.avals || []).forEach(l => {
+                const dp = achaProjDist(dist, l.proj);
+                if (dp) { if (!avDe.has(dp)) avDe.set(dp, new Set()); avDe.get(dp).add(norm(l.aval)); }
+            });
+            dist.projs.forEach(dp => {
+                const n = parseInt(String(dp.stand || '').replace(/\D/g, ''), 10);
+                if (!n || n < 1 || n > TOTAL_STANDS) return;
+                (porStand[n] = porStand[n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0 });
+            });
+        }
+        let com = 0, cards = '';
+        for (let n = 1; n <= TOTAL_STANDS; n++) {
+            const itens = porStand[n] || [], ok = itens.some(i => i.qtd > 0);
+            if (ok) com++;
+            const det = itens.length
+                ? itens.map(i => `<div class="st-item">ID ${esc(i.dp.id)}${i.dp.rodada ? ' · ' + esc(i.dp.rodada) : ''}<br>${i.qtd > 0 ? '✅ ' + i.qtd + ' avaliaç' + (i.qtd > 1 ? 'ões' : 'ão') : '❌ sem nota'}</div>`).join('')
+                : `<div class="st-item">${dist ? 'sem projeto na distribuição' : 'sem nota'}</div>`;
+            cards += `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">Stand</div><div class="st-num">${n}</div>${det}</div>`;
+        }
+        const aviso = dist ? '' : `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Planilha de distribuição não carregada: todos os stands aparecem em vermelho. Carregue o link da distribuição para o painel casar cada stand com seu projeto.</div>`;
+        return `<h3>🚦 Status dos Stands — <span class="badge-lib">${com}</span> de ${TOTAL_STANDS} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOTAL_STANDS - com}</span> sem nota</h3>` + aviso + `<div class="st-grid">${cards}</div>`;
     }
 
     // Título da planilha de dados que ainda não casou com nenhum projeto e mais se parece com o título informado
@@ -966,7 +1009,7 @@ th,td{padding:8px}
         Object.keys(NUC).forEach(k => {
             const d = dadosGlobais[k], n = NUC[k];
             // Só abre o ranking do núcleo se os dados foram carregados
-            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) return;
+            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)) || (k === 'feceg' && distAtual()))) return;
             html += `<h2>${n.ttl}</h2>`;
             if (n.proj) html += avisoExtras(d, k);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
@@ -977,6 +1020,7 @@ th,td{padding:8px}
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
+            if (k === 'feceg') abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
             abas.push({ key: 'alert', op: true, rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () => corpoAlertas(k, d) });
