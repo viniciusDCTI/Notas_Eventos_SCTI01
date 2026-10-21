@@ -99,6 +99,7 @@ th,td{padding:8px}
     </div>
  
     <div class="sync-section no-print">
+        <div class="sync-input-group" style="margin:0 0 12px"><label style="font-size:13px;font-weight:bold;color:#1b365d;align-self:center">Planilha:</label><select id="nuc-sel" class="sync-input" onchange="mostrarNucleo(this.value)"></select></div>
         <div class="preset-container" id="presets"></div>
         <div style="text-align: center; margin-top: 15px;">
             <button class="btn" style="background-color: #2b6cb0;" onclick="iniciarSincronizacaoGeral()">🔄 Iniciar Sincronização Live (Todos)</button>
@@ -123,7 +124,7 @@ th,td{padding:8px}
         semcitec: "https://docs.google.com/spreadsheets/d/14OYmkg0JKb7yRqQHkkVTKIK-Hq-Mp2rmCqXVOB1I2xM/edit?usp=sharing", semcitecx: "",
         feceg: "https://docs.google.com/spreadsheets/d/1wQE_IG81X6-grkFuMNkOs0m4xFLmHSPRGnQATaRN7Cg/edit?resourcekey=&gid=961693418#gid=961693418", fecegx: "https://docs.google.com/spreadsheets/d/1KPCH_ik6Fjgf3OtPk0BV4Nv6AN1ivPCL/edit?gid=1202867224#gid=1202867224",
         fecegd: "https://docs.google.com/spreadsheets/d/1EfPkWYK2Si2s5dW7SwArDt2X-vwdTpOl/edit?gid=500838883#gid=500838883", // FECEG: planilha de distribuição (Stands e avaliadores)
-        fecegdel: "https://script.google.com/macros/s/AKfycbyFTCP4FUo54XREcuAKgwRyshhbLyVrupaIvl9_bDBFZOn0UOa2HfJWIAO9aTQMzkhM/exec", // FECEG: cole aqui a URL do Apps Script de exclusão (termina em /exec); fica fixa no código
+        fecegdel: "", // FECEG: cole aqui a URL do Apps Script de exclusão (termina em /exec); fica fixa no código
 
         mostra: "https://docs.google.com/spreadsheets/d/1Lqffnqykfma5dsO8ZSB-aRShR8YOPqgUDQnpl2FOQmg/edit?usp=sharing", mostrax: ""
     };
@@ -145,6 +146,7 @@ th,td{padding:8px}
     const DIST_FONTE_AVALIADORES = 'rodadas';
     let distLink = null, distArq = null, distT = 0, distErro = '', distArqNome = '';
     let senhaExcl = '', bloqueioExcl = 0;
+    let ultimoHtml = null; // último HTML desenhado (evita redesenhar à toa a cada sincronização)
     const regExcl = []; // avaliações com botão de excluir na tela atual
     const OPT_TODAS = '<option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option>';
     // Abas da planilha usadas no ranking: a escolhida ou, por padrão, todas juntas
@@ -176,7 +178,7 @@ th,td{padding:8px}
     }
  
     document.getElementById('presets').innerHTML = Object.keys(NUC).map(k => `
-        <div class="preset-box">
+        <div class="preset-box" id="box-${k}">
             <div class="preset-title"><span>${NUC[k].nome}</span><span id="ind-${k}" class="indicator ind-off">Desconectado</span></div>
             <button class="btn btn-small btn-success" onclick="carregarLinkSalvo('${k}')">📋 Usar Link Salvo</button>
             <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
@@ -188,6 +190,12 @@ th,td{padding:8px}
             <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao(this.value)"></div>` : ''}
         </div>`).join('');
  
+    document.getElementById('nuc-sel').innerHTML = Object.keys(NUC).map(k => `<option id="opt-${k}" value="${k}">${NUC[k].nome} — Desconectado</option>`).join('');
+    function mostrarNucleo(k) {
+        Object.keys(NUC).forEach(n => { document.getElementById('box-' + n).style.display = n === k ? '' : 'none'; });
+        document.getElementById('nuc-sel').value = k;
+    }
+    mostrarNucleo('feceg');
     try { const sv = localStorage.getItem('scti01_del_feceg'), el = document.getElementById('del-feceg'); if (sv && el) el.value = sv; } catch (e) {}
     { const dd = document.getElementById('dist-feceg'), dl = document.getElementById('del-feceg');
       if (dd && LINKS_SALVOS.fecegd) dd.value = LINKS_SALVOS.fecegd;
@@ -204,6 +212,8 @@ th,td{padding:8px}
         const el = document.getElementById('ind-' + k);
         el.className = "indicator " + (on ? "ind-on" : "ind-off");
         el.innerText = txt;
+        const o = document.getElementById('opt-' + k);
+        if (o) o.textContent = NUC[k].nome + ' — ' + txt;
     }
  
     function carregarLinkSalvo(k) {
@@ -256,7 +266,8 @@ th,td{padding:8px}
                     : Promise.resolve().then(() => ({ ext: lerExtras(wb), est: 'sem-link' }));
                 return extP.then(o => {
                     const r = processarProjetos(wb, k, o.ext);
-                    r.extInfo = { est: o.est, total: Object.keys(o.ext).length, casados: r.geral.filter(p => p.inst || (p.orient && p.orient.length) || (p.autor && p.autor.length)).length };
+                    r.extInfo = { est: o.est, total: Object.keys(o.ext).length, casados: r.geral.filter(p => p.inst || (p.orient && p.orient.length) || (p.autor && p.autor.length)).length,
+                        sem: r.geral.filter(p => !(p.inst || (p.orient && p.orient.length) || (p.autor && p.autor.length))).map(p => ({ proj: p.equipe, sug: sugerirExtra(p.equipe, o.ext, r.geral) })) };
                     return r;
                 });
             }).then(res => {
@@ -415,7 +426,7 @@ th,td{padding:8px}
         const txt = (r, c) => c && r[c] != null ? String(r[c]).trim() : '';
         melhor.rows.forEach(r => {
             const chave = chaveProj(r[melhor.cp]);
-            if (chave && !mapa[chave]) mapa[chave] = { mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci),
+            if (chave && !mapa[chave]) mapa[chave] = { titulo: txt(r, melhor.cp), mod: txt(r, melhor.cm), eixo: txt(r, melhor.ce), inst: txt(r, melhor.ci),
                 orient: [...new Set(melhor.co.map(c => txt(r, c)).filter(Boolean))],
                 autor: [...new Set(melhor.cau.map(c => txt(r, c)).filter(Boolean))] };
         });
@@ -857,18 +868,44 @@ th,td{padding:8px}
                 ? Object.keys(porInst).sort((a, b) => (a === SEM_INST) - (b === SEM_INST) || a.localeCompare(b)).map(i =>
                     `<h3>🏫 ${esc(i)} — ${porInst[i].filter(p => p.qtd >= 3).length} de ${porInst[i].length} liberados</h3>` + tabProj(porInst[i], true)).join('')
                 : tabProj(projsF, false);
-        if (modo === 'onibus') return `<h3>🚌 ONIBUS — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
+        if (modo === 'onibus') return `<h3>📋 Situação — projetos liberados (3 ou mais avaliações): ${lib} de ${projsAll.length}</h3>` + caixa + tProj;
         return `<h3>📝 Avaliações</h3>` + caixa + `<h3>👤 Avaliadores e seus projetos</h3>` + tAval;
     }
 
-    function avisoExtras(d) {
+    // Título da planilha de dados que ainda não casou com nenhum projeto e mais se parece com o título informado
+    function sugerirExtra(titulo, ext, geral) {
+        const usados = new Set();
+        geral.forEach(p => { usados.add(chaveProj(p.equipe)); usados.add(norm(p.equipe)); });
+        const tok = s => new Set(chaveTitulo(s).split(' ').filter(Boolean));
+        const a = tok(titulo);
+        let melhor = '', ms = 0;
+        Object.keys(ext).forEach(k => {
+            if (usados.has(k) || !ext[k].titulo) return;
+            const b = tok(ext[k].titulo);
+            const inter = [...a].filter(x => b.has(x)).length, uni = new Set([...a, ...b]).size;
+            const s = uni ? inter / uni : 0;
+            if (s > ms) { ms = s; melhor = ext[k].titulo; }
+        });
+        return ms >= 0.4 ? melhor : '';
+    }
+
+    function avisoExtras(d, k) {
         const x = d.extInfo; if (!x) return '';
         let m = '';
         if (x.est === 'erro') m = 'Não consegui baixar a planilha de dados extras. Confira se o link está correto e compartilhado como "qualquer pessoa com o link" (e se é uma planilha do Google, não um .xlsx solto no Drive).';
         else if (!x.total) m = x.est === 'sem-link'
             ? 'Nenhum link de dados extras informado: Instituição, Orientador e Meninas na Ciência não serão calculados. Cole o link no campo "dados extras" (o botão "Usar Link Salvo" só preenche se LINKS_SALVOS tiver o link extra, ex.: fecegx).'
             : 'A planilha de dados extras foi lida, mas nenhuma aba com as colunas Título/Projeto, Instituição, Orientador ou Autores foi reconhecida.';
-        else if (d.geral.length && x.casados < d.geral.length) m = `Dados extras casaram só ${x.casados} de ${d.geral.length} projetos do ranking: os títulos da planilha de avaliações precisam ser iguais aos da planilha de dados.`;
+        else if (d.geral.length && x.casados < d.geral.length) {
+            const dist = k === 'feceg' ? distAtual() : null;
+            const lista = (x.sem || []).slice(0, 10).map(s => {
+                const dp = achaProjDist(dist, s.proj);
+                const ident = dp ? ` <span style="color:#64748b">(ID ${esc(dp.id)}${dp.stand ? ' · Stand ' + esc(dp.stand) : ''})</span>` : '';
+                return `<li><strong>${esc(s.proj)}</strong>${ident}${s.sug ? `<br><span style="color:#64748b">Título parecido na planilha de dados: </span>${esc(s.sug)}` : ''}</li>`;
+            }).join('');
+            m = `Dados extras casaram só ${x.casados} de ${d.geral.length} projetos do ranking: os títulos da planilha de avaliações precisam ser iguais aos da planilha de dados.` +
+                (lista ? `<br><strong>Sem correspondência:</strong><ul style="margin:4px 0 0 18px;padding:0">${lista}</ul>${(x.sem || []).length > 10 ? `<div>…e mais ${x.sem.length - 10}</div>` : ''}` : '');
+        }
         return m ? `<div class="instruction no-print" style="margin:4px 0 12px;padding:8px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;color:#92400e">⚠️ ${m}</div>` : '';
     }
 
@@ -881,7 +918,7 @@ th,td{padding:8px}
             // Só abre o ranking do núcleo se os dados foram carregados
             if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)))) return;
             html += `<h2>${n.ttl}</h2>`;
-            if (n.proj) html += avisoExtras(d);
+            if (n.proj) html += avisoExtras(d, k);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
  
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
@@ -891,7 +928,7 @@ th,td{padding:8px}
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
-            abas.push({ key: 'onibus', op: true, rot: '🚌 ONIBUS', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
+            abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
             abas.push({ key: 'alert', op: true, rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () => corpoAlertas(k, d) });
  
             if (k === 'feceg') {
@@ -917,8 +954,19 @@ th,td{padding:8px}
         // Mantém o foco no campo de pesquisa durante a atualização automática
         const ae = document.activeElement;
         const foco = ae && ae.id && ae.id.indexOf('fil-aval-') === 0 ? { id: ae.id, p: ae.selectionStart } : null;
-        document.getElementById('rankings-container').innerHTML = html;
-        if (foco) { const el = document.getElementById(foco.id); if (el) { el.focus(); try { el.setSelectionRange(foco.p, foco.p); } catch (e) {} } }
+        const cont = document.getElementById('rankings-container');
+        if (html !== ultimoHtml) {
+            // guarda a rolagem da página (e das abas/tabelas) para não voltar ao topo quando os dados atualizam
+            const x = window.scrollX, y = window.scrollY;
+            const rolls = Array.from(cont.querySelectorAll('.tabs, table')).map(e => e.scrollLeft);
+            cont.style.minHeight = cont.offsetHeight + 'px';
+            cont.innerHTML = html;
+            ultimoHtml = html;
+            Array.from(cont.querySelectorAll('.tabs, table')).forEach((e, i) => { if (rolls[i]) e.scrollLeft = rolls[i]; });
+            window.scrollTo(x, y);
+            cont.style.minHeight = '';
+        }
+        if (foco) { const el = document.getElementById(foco.id); if (el) { el.focus({ preventScroll: true }); try { el.setSelectionRange(foco.p, foco.p); } catch (e) {} } }
     }
  
     function criarEstruturaTabela(id, dados) {
