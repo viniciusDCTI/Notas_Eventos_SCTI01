@@ -95,7 +95,7 @@ th,td{padding:8px}
     <h1>Sistema de Apuração e Rankings Dinâmicos de Eventos SCTI01</h1>
  
     <div class="instruction no-print">
-        <strong>Modo de Uso:</strong> Use os botões rápidos para carregar os links salvos ou cole novos links diretamente nos campos abaixo. SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador). A FECEG aceita ainda a planilha de distribuição (Stand e avaliadores por projeto) e a URL do Apps Script de exclusão de avaliações.
+        <strong>Modo de Uso:</strong> Use o botão "Usar Link Salvo" para carregar os dados (os campos de links ficam ocultos: clique em "Maximizar links" para colar novos links). SEMCITEC, FECEG e MOSTRA aceitam também um link opcional de dados extras (Modalidade, Eixo, Instituição e Orientador). A FECEG aceita ainda a planilha de distribuição (Stand e avaliadores por projeto) e a URL do Apps Script de exclusão de avaliações.
     </div>
  
     <div class="sync-section no-print">
@@ -180,15 +180,26 @@ th,td{padding:8px}
     document.getElementById('presets').innerHTML = Object.keys(NUC).map(k => `
         <div class="preset-box" id="box-${k}">
             <div class="preset-title"><span>${NUC[k].nome}</span><span id="ind-${k}" class="indicator ind-off">Desconectado</span></div>
-            <button class="btn btn-small btn-success" onclick="carregarLinkSalvo('${k}')">📋 Usar Link Salvo</button>
-            <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-small btn-success" onclick="carregarLinkSalvo('${k}')">📋 Usar Link Salvo</button>
+                <button class="btn btn-small btn-secondary" id="tg-${k}" onclick="alternarLinks('${k}')" title="Mostrar ou ocultar os campos de links">⛶ Maximizar links</button>
+            </div>
+            <div id="links-${k}" style="display:none">
+                <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
+                ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
+                ${k === 'feceg' ? `<div class="sync-input-group"><input type="text" id="dist-${k}" class="sync-input" placeholder="Link da planilha de distribuição (Stand e avaliadores) — opcional"></div>
+                <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao(this.value)"></div>` : ''}
+            </div>
             <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">Aba do ranking:</label><select id="aba-${k}" class="sync-input" onchange="escolherAba('${k}', this.value)"><option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option></select></div>
-            ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
-            ${k === 'feceg' ? `<div class="sync-input-group"><input type="text" id="dist-${k}" class="sync-input" placeholder="Link da planilha de distribuição (Stand e avaliadores) — opcional"></div>
-            <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">ou arquivo .xlsx:</label><input type="file" id="dist-arq-${k}" class="sync-input" accept=".xlsx,.xls" onchange="lerArquivoDistribuicao(this)"></div>
-            <div id="dist-info-${k}" style="font-size:12px;color:#475569;margin-top:6px"></div>
-            <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao(this.value)"></div>` : ''}
+            ${k === 'feceg' ? `<div id="dist-info-${k}" style="font-size:12px;color:#475569;margin-top:6px"></div>` : ''}
         </div>`).join('');
+ 
+    function alternarLinks(k) {
+        const el = document.getElementById('links-' + k), bt = document.getElementById('tg-' + k);
+        const abrir = el.style.display === 'none';
+        el.style.display = abrir ? '' : 'none';
+        bt.textContent = abrir ? '🗗 Ocultar links' : '⛶ Maximizar links';
+    }
  
     document.getElementById('nuc-sel').innerHTML = Object.keys(NUC).map(k => `<option id="opt-${k}" value="${k}">${NUC[k].nome} — Desconectado</option>`).join('');
     function mostrarNucleo(k) {
@@ -226,6 +237,11 @@ th,td{padding:8px}
         const dl = document.getElementById('del-' + k);
         if (dl && LINKS_SALVOS[k + 'del']) { dl.value = LINKS_SALVOS[k + 'del']; salvarUrlExclusao(dl.value); }
         setInd(k, true, "Link Pronto");
+        // Os links ficam ocultos: avisa que os dados estão sendo carregados e já inicia a sincronização
+        document.getElementById('sync-status').innerHTML = "⏳ Link carregado — os dados estão sendo carregados, aguarde...";
+        ultimoHtml = '__carregando__';
+        document.getElementById('rankings-container').innerHTML = '<div class="empty-message">⏳ Os dados estão sendo carregados, aguarde alguns instantes...</div>';
+        iniciarSincronizacaoGeral();
     }
  
     function extrairIdSheet(url) {
@@ -251,7 +267,7 @@ th,td{padding:8px}
             return;
         }
         if (intervaloSync) clearInterval(intervaloSync);
-        document.getElementById('sync-status').innerHTML = "⏳ Conectando aos servidores do Google Sheets...";
+        document.getElementById('sync-status').innerHTML = "⏳ Os dados estão sendo carregados (conectando ao Google Sheets)...";
         executarCicloSincronizacao();
         intervaloSync = setInterval(executarCicloSincronizacao, 5000);
     }
@@ -356,6 +372,12 @@ th,td{padding:8px}
         if (EXCECOES_NOME_MASC.has(primeiro)) return false;
         if (EXCECOES_NOME_FEM.has(primeiro)) return true;
         return primeiro.endsWith('a');
+    }
+ 
+    // "Ensino Médio" e "Ensino Médio 1" são o mesmo grupo: unifica o nome
+    function unirGrupo(t) {
+        const x = String(t || '').trim();
+        return /^ensino medio(\s*[-–]?\s*1)?$/.test(semAcento(x)) ? 'Ensino Médio' : x;
     }
  
     function linhasAvaliacao(wb, k) {
@@ -463,8 +485,8 @@ th,td{padding:8px}
             const t = p.n.slice().sort((a, b) => b.nota - a.nota).slice(0, 3);
             const total = t[0].nota + t[1].nota + t[2].nota;
             const e = ext[chaveProj(p.equipe)] || ext[chave] || {};
-            const grupo = (k === 'feceg' ? e.mod : (e.mod && e.eixo ? e.mod + ' — ' + e.eixo : e.mod)) || p.cat;
-            const nivel = (p.n.find(x => x.nivelEnsino) || {}).nivelEnsino || '';
+            const grupo = unirGrupo((k === 'feceg' ? e.mod : (e.mod && e.eixo ? e.mod + ' — ' + e.eixo : e.mod)) || p.cat);
+            const nivel = unirGrupo((p.n.find(x => x.nivelEnsino) || {}).nivelEnsino || '');
             geral.push({ equipe: p.equipe, sub: grupo, grupo, nivel, inst: e.inst || '', orient: e.orient || [], autor: e.autor || [],
                          b1: t[0].nota, a1: t[0].aval, b2: t[1].nota, a2: t[1].aval, b3: t[2].nota, a3: t[2].aval, total, media: total / 3,
                          notaODS: Math.max(0, ...p.n.map(x => x.notaODS || 0)), notaTema: Math.max(0, ...p.n.map(x => x.notaTema || 0)) });
@@ -476,6 +498,14 @@ th,td{padding:8px}
         // Ranking por Nível de Ensino (ex.: Ensino Médio, Fundamental, Técnico) — também exclui o 1º geral já premiado com a vaga FEBRACE
         const gEnsino = {};
         geral.forEach(p => { if (!p.febrace && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
+        // Se o mesmo nome já existe como Modalidade/Categoria (ex.: "Ensino Médio"), junta numa aba só, sem repetir projeto
+        Object.keys(gEnsino).forEach(t => {
+            if (!g[t]) return;
+            const jaTem = new Set(g[t].map(x => norm(x.equipe)));
+            gEnsino[t].forEach(x => { if (!jaTem.has(norm(x.equipe))) g[t].push(x); });
+            g[t].sort((a, b) => b.total - a.total);
+            delete gEnsino[t];
+        });
         // FECEG: instituições contadas só entre os projetos no pódio (1º ao 3º) de cada modalidade
         const podio = k === 'feceg';
         const base = podio ? Object.values(g).flatMap(l => l.slice(0, 3)) : geral;
@@ -694,12 +724,24 @@ th,td{padding:8px}
 
     function irParaAba(k, key) { abaAtiva[k] = key; renderizarTabelas(); }
 
+    // A aba escolhida em "Aba do ranking" (ex.: Rodada 1) combina com o período (rodada) da distribuição?
+    function mesmaRodada(aba, rod) {
+        const NUMS = { um: '1', uma: '1', primeira: '1', primeiro: '1', dois: '2', duas: '2', segunda: '2', segundo: '2', tres: '3', terceira: '3', terceiro: '3', quatro: '4', quarta: '4', quarto: '4' };
+        const toks = x => chaveNome(x).split(' ').filter(Boolean).map(w => NUMS[w] || w);
+        const a = toks(aba), r = toks(rod);
+        if (!a.length || !r.length) return false;
+        const na = a.filter(w => /^\d+$/.test(w)), nr = r.filter(w => /^\d+$/.test(w));
+        if (na.length && nr.length) return na[0] === nr[0];
+        const ca = a.join(' '), cr = r.join(' ');
+        return ca === cr || ca.includes(cr) || cr.includes(ca);
+    }
+ 
     function tabelaAvalFeceg(k, d, dist, casa) {
         const rows = modeloAvaliadores(d, dist);
         const comTot = rows.filter(r => r.total > 0);
         const concl = comTot.filter(r => r.concl).length, comProb = rows.filter(r => r.nprob > 0).length;
         const prev = comTot.reduce((s, r) => s + r.total, 0), feitas = comTot.reduce((s, r) => s + r.done, 0);
-        const resumo = `<div class="instruction" style="margin:8px 0 0 14px">${dist ? `✅ <strong>${concl}</strong> de ${comTot.length} avaliadores com todas as avaliações concluídas (${feitas} de ${prev} avaliações previstas) · ` : ''}⚠️ <strong>${comProb}</strong> avaliador(es) com projeto em problema</div>`;
+        let resumo = `<div class="instruction" style="margin:8px 0 0 14px">${dist ? `✅ <strong>${concl}</strong> de ${comTot.length} avaliadores com todas as avaliações concluídas (${feitas} de ${prev} avaliações previstas) · ` : ''}⚠️ <strong>${comProb}</strong> avaliador(es) com projeto em problema</div>`;
         // Cada avaliador aparece uma vez por período (rodada) em que tem projetos; sem distribuição, tudo fica numa lista só
         const shape = (r, itens) => {
             const at = itens.filter(i => i.atrib), total = at.length, done = at.filter(i => i.feito).length;
@@ -712,6 +754,8 @@ th,td{padding:8px}
             r.itens.forEach(i => { const g = i.dp && i.dp.rodada ? i.dp.rodada : ''; (por[g] = por[g] || []).push(i); });
             Object.keys(por).forEach(g => (grupos[g] = grupos[g] || []).push(shape(r, por[g])));
         });
+        const selAba = abaEscolhida[k] || '';
+        const filtrado = !!dist && !!selAba && Object.keys(grupos).some(g => g && mesmaRodada(selAba, g));
         const chip = i => `<div class="pj ${i.feito ? '' : 'pj-pend'}"><span>${i.feito ? '✅' : '⏳'}</span>${i.dp && i.dp.stand ? `<span class="stand">Stand ${esc(i.dp.stand)}</span>` : ''}${i.dp && i.dp.id ? `<span class="pj-r"><strong>ID ${esc(i.dp.id)}</strong></span>` : ''}<span class="pj-t">${esc(i.titulo)}</span>${i.extra ? '<span class="tag-extra">fora da lista do avaliador</span>' : ''}${i.probs.map(p => `<span class="prob" title="Ver em Duplicados e Incompletos" onclick="irParaAba('${k}', 'alert')">⚠️ ${esc(p)}</span>`).join('')}</div>`;
         const contador = s => {
             const extras = s.itens.filter(i => i.extra).length;
@@ -729,10 +773,16 @@ th,td{padding:8px}
             }).filter(Boolean);
             if (!vis.length) return `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
             return `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:170px">${dist ? 'Avaliações no período (feitas/atribuídas)' : 'Projetos'}</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
-                vis.map(({ s, itens }) => `<tr class="${s.concl ? 'liberado' : ''} ${s.nprob ? 'row-prob' : ''}"><td><strong>${esc(s.r.nome)}</strong>${dist && s.r.total > 0 ? `<span class="evaluator-name" style="font-style:normal">Total geral: ${s.r.done}/${s.r.total}</span>` : ''}</td><td style="text-align:center">${contador(s)}</td><td>${itens.map(chip).join('')}</td></tr>`).join('') + `</tbody></table>`;
+                vis.map(({ s, itens }) => `<tr class="${s.concl ? 'liberado' : ''} ${s.nprob ? 'row-prob' : ''}"><td><strong>${esc(s.r.nome)}</strong>${dist && s.r.total > 0 && !filtrado ? `<span class="evaluator-name" style="font-style:normal">Total geral: ${s.r.done}/${s.r.total}</span>` : ''}</td><td style="text-align:center">${contador(s)}</td><td>${itens.map(chip).join('')}</td></tr>`).join('') + `</tbody></table>`;
         };
         if (!dist) return resumo + tabela(grupos['']);
-        const chaves = Object.keys(grupos).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+        let chaves = Object.keys(grupos).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+        // Se foi escolhida uma rodada específica, só aparecem os avaliadores dessa rodada
+        if (filtrado) {
+            chaves = chaves.filter(g => g && mesmaRodada(selAba, g));
+            const fl = chaves.flatMap(g => grupos[g]), ct2 = fl.filter(s => s.total > 0);
+            resumo = `<div class="instruction" style="margin:8px 0 0 14px">🕘 Mostrando só a rodada <strong>${esc(selAba)}</strong> · ✅ <strong>${ct2.filter(s => s.concl).length}</strong> de ${ct2.length} avaliadores com todas as avaliações concluídas (${ct2.reduce((a, s) => a + s.done, 0)} de ${ct2.reduce((a, s) => a + s.total, 0)} previstas) · ⚠️ <strong>${fl.filter(s => s.nprob > 0).length}</strong> avaliador(es) com projeto em problema</div>`;
+        }
         return resumo + chaves.map(g => {
             const l = grupos[g], ct = l.filter(s => s.total > 0), cc = ct.filter(s => s.concl).length;
             return `<h3>🕘 ${g ? esc(g) : 'Sem período (fora da distribuição ou sem rodada)'} — ${ct.length ? `${cc} de ${ct.length} avaliadores concluídos` : `${l.length} avaliador(es)`}</h3>` + tabela(l);
