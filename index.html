@@ -152,7 +152,10 @@ th,td{padding:8px}
     let abaAtiva = {}, abasRender = {}, abaEscolhida = {}, filtroAval = {};
     // FECEG: planilha de distribuição. Se as abas das rodadas e o "Resumo Completo" divergirem nos avaliadores, vale a fonte abaixo ('rodadas' ou 'resumo')
     const DIST_FONTE_AVALIADORES = 'rodadas';
-    let distLink = null, distArq = null, distT = 0, distErro = '', distArqNome = '';
+    // Planilha de distribuição (Stand/ID e avaliadores) e exclusão de avaliações: por núcleo (FECEG e SEMCITEC)
+    const NUC_DIST = ['feceg', 'semcitec'];
+    const DST = {};
+    const dstOf = k => DST[k] || (DST[k] = { link: null, arq: null, t: 0, erro: '', nome: '' });
     let senhaExcl = '', bloqueioExcl = 0;
     let ultimoHtml = null; // último HTML desenhado (evita redesenhar à toa a cada sincronização)
     const regExcl = []; // avaliações com botão de excluir na tela atual
@@ -195,11 +198,11 @@ th,td{padding:8px}
             <div id="links-${k}" style="display:none">
                 <div class="sync-input-group"><input type="text" id="url-${k}" class="sync-input" placeholder="Cole um novo link aqui..."></div>
                 ${NUC[k].proj ? `<div class="sync-input-group"><input type="text" id="ext-${k}" class="sync-input" placeholder="Link de dados extras (Modalidade, Eixo, Instituição, Orientador) — opcional"></div>` : ''}
-                ${k === 'feceg' ? `<div class="sync-input-group"><input type="text" id="dist-${k}" class="sync-input" placeholder="Link da planilha de distribuição (Stand e avaliadores) — opcional"></div>
-                <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao(this.value)"></div>` : ''}
+                ${NUC_DIST.includes(k) ? `<div class="sync-input-group"><input type="text" id="dist-${k}" class="sync-input" placeholder="Link da planilha de distribuição (Stand e avaliadores) — opcional"></div>
+                <div class="sync-input-group"><input type="text" id="del-${k}" class="sync-input" placeholder="URL do Apps Script de exclusão de avaliações (termina em /exec) — opcional" oninput="salvarUrlExclusao('${k}', this.value)"></div>` : ''}
             </div>
             <div class="sync-input-group"><label style="font-size:12px;color:#475569;align-self:center">Aba do ranking:</label><select id="aba-${k}" class="sync-input" onchange="escolherAba('${k}', this.value)"><option value="">📚 Todas as abas juntas (Ranking Geral — padrão)</option></select></div>
-            ${k === 'feceg' ? `<div id="dist-info-${k}" style="font-size:12px;color:#475569;margin-top:6px"></div>` : ''}
+            ${NUC_DIST.includes(k) ? `<div id="dist-info-${k}" style="font-size:12px;color:#475569;margin-top:6px"></div>` : ''}
         </div>`).join('');
  
     function alternarLinks(k) {
@@ -215,10 +218,12 @@ th,td{padding:8px}
         document.getElementById('nuc-sel').value = k;
     }
     mostrarNucleo('feceg');
-    try { const sv = localStorage.getItem('scti01_del_feceg'), el = document.getElementById('del-feceg'); if (sv && el) el.value = sv; } catch (e) {}
-    { const dd = document.getElementById('dist-feceg'), dl = document.getElementById('del-feceg');
-      if (dd && LINKS_SALVOS.fecegd) dd.value = LINKS_SALVOS.fecegd;
-      if (dl && LINKS_SALVOS.fecegdel) dl.value = LINKS_SALVOS.fecegdel; }
+    NUC_DIST.forEach(k => {
+      try { const sv = localStorage.getItem('scti01_del_' + k), el = document.getElementById('del-' + k); if (sv && el) el.value = sv; } catch (e) {}
+      const dd = document.getElementById('dist-' + k), dl = document.getElementById('del-' + k);
+      if (dd && LINKS_SALVOS[k + 'd']) dd.value = LINKS_SALVOS[k + 'd'];
+      if (dl && LINKS_SALVOS[k + 'del']) dl.value = LINKS_SALVOS[k + 'del'];
+    });
     limparEstado();
     renderizarTabelas();
  
@@ -243,7 +248,7 @@ th,td{padding:8px}
         const dst = document.getElementById('dist-' + k);
         if (dst && LINKS_SALVOS[k + 'd']) dst.value = LINKS_SALVOS[k + 'd'];
         const dl = document.getElementById('del-' + k);
-        if (dl && LINKS_SALVOS[k + 'del']) { dl.value = LINKS_SALVOS[k + 'del']; salvarUrlExclusao(dl.value); }
+        if (dl && LINKS_SALVOS[k + 'del']) { dl.value = LINKS_SALVOS[k + 'del']; salvarUrlExclusao(k, dl.value); }
         setInd(k, true, "Link Pronto");
         // Os links ficam ocultos: avisa que os dados estão sendo carregados e já inicia a sincronização
         document.getElementById('sync-status').innerHTML = "⏳ Link carregado — os dados estão sendo carregados, aguarde...";
@@ -269,7 +274,7 @@ th,td{padding:8px}
             const dst = document.getElementById('dist-' + k);
             if (dst && urlExport(dst.value.trim())) urlsExport[k + 'd'] = urlExport(dst.value.trim());
         });
-        distLink = null; distT = 0; distErro = '';
+        Object.keys(DST).forEach(x => { DST[x].link = null; DST[x].t = 0; DST[x].erro = ''; });
         if (!Object.keys(NUC).some(k => urlsExport[k])) {
             alert("Por favor, carregue ou cole pelo menos um link de planilha para sincronizar!");
             return;
@@ -299,7 +304,7 @@ th,td{padding:8px}
                 setInd(k, true, "🔴 Sincronizando Live");
             }).catch(() => setInd(k, false, "⚠️ Erro de Conexão"))
         );
-        promessas.push(atualizarDistribuicao());
+        NUC_DIST.forEach(k => promessas.push(atualizarDistribuicao(k)));
         Promise.all(promessas).then(() => {
             document.getElementById('sync-status').innerHTML = `🟢 Rankings sincronizados e atualizados com sucesso às ${new Date().toLocaleTimeString()}!`;
             renderizarTabelas();
@@ -564,7 +569,7 @@ th,td{padding:8px}
     const chaveTitulo = s => semAcento(chaveProj(s)).replace(/[^a-z0-9]+/g, ' ').trim();
     const chaveNome = s => semAcento(s).replace(/[^a-z0-9]+/g, ' ').trim();
     const rotuloRodada = s => { const t = String(s || '').trim().toLowerCase(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; };
-    function distAtual() { return distLink || distArq; }
+    function distAtual(k) { const e = dstOf(k); return e.link || e.arq; }
 
     // Lê as abas das rodadas (STAND, ID, Título, Avaliador 1..3) e, como complemento, o "Resumo Completo" (ID, Avaliador Presencial 1..3)
     function lerDistribuicao(wb) {
@@ -610,47 +615,50 @@ th,td{padding:8px}
         return { projs, porId, porTitulo, avals, diverge, fonte: DIST_FONTE_AVALIADORES };
     }
 
-    function atualizarDistribuicao() {
-        const u = urlsExport['fecegd'];
-        if (!u) { distLink = null; return Promise.resolve(); }
-        if (distLink && Date.now() - distT < 30000) return Promise.resolve(); // baixa de novo só a cada 30 s
+    function atualizarDistribuicao(k) {
+        const e = dstOf(k), u = urlsExport[k + 'd'];
+        if (!u) { e.link = null; return Promise.resolve(); }
+        if (e.link && Date.now() - e.t < 30000) return Promise.resolve(); // baixa de novo só a cada 30 s
         return baixar(u).then(wb => {
             const x = lerDistribuicao(wb);
             if (!x.projs.length) throw new Error('vazia');
-            distLink = x; distT = Date.now(); distErro = '';
-        }).catch(() => { distErro = 'Não consegui ler a planilha de distribuição (confira o link, se está compartilhada como "qualquer pessoa com o link" e se tem abas com as colunas STAND e ID). Se houver um arquivo .xlsx carregado, ele está sendo usado.'; });
+            e.link = x; e.t = Date.now(); e.erro = '';
+        }).catch(() => { e.erro = 'Não consegui ler a planilha de distribuição (confira o link, se está compartilhada como "qualquer pessoa com o link" e se tem abas com as colunas STAND e ID). Se houver um arquivo .xlsx carregado, ele está sendo usado.'; });
     }
 
-    function lerArquivoDistribuicao(inp) {
-        const f = inp.files && inp.files[0];
-        if (!f) { distArq = null; distArqNome = ''; renderizarTabelas(); return; }
+    function lerArquivoDistribuicao(inp, k) {
+        k = k || 'feceg';
+        const e = dstOf(k), f = inp.files && inp.files[0];
+        if (!f) { e.arq = null; e.nome = ''; renderizarTabelas(); return; }
         const rd = new FileReader();
         rd.onload = () => {
             try {
                 const x = lerDistribuicao(XLSX.read(new Uint8Array(rd.result), { type: 'array' }));
                 if (!x.projs.length) throw new Error('vazia');
-                distArq = x; distArqNome = f.name; distErro = '';
-            } catch (e) { distArq = null; distArqNome = ''; distErro = 'Não consegui ler o arquivo de distribuição (precisa ter abas com as colunas STAND e ID).'; }
+                e.arq = x; e.nome = f.name; e.erro = '';
+            } catch (err) { e.arq = null; e.nome = ''; e.erro = 'Não consegui ler o arquivo de distribuição (precisa ter abas com as colunas STAND e ID).'; }
             renderizarTabelas();
         };
         rd.readAsArrayBuffer(f);
     }
 
     function atualizarInfoDist() {
-        const el = document.getElementById('dist-info-feceg');
-        if (!el) return;
-        const dist = distAtual(), d = dadosGlobais.feceg;
-        let t = '';
-        if (distErro) t = '⚠️ ' + distErro;
-        else if (dist) {
-            t = `✅ Distribuição carregada (${distLink ? 'link' : esc(distArqNome)}): ${dist.projs.length} projetos, ${Object.keys(dist.avals).length} avaliadores.`;
-            if (d && d.projs && d.projs.length) {
-                const sem = d.projs.filter(p => !achaProjDist(dist, p.proj)).length;
-                if (sem) t += ` ⚠️ ${sem} projeto(s) da planilha de avaliações não foram achados na distribuição (os títulos precisam ser iguais).`;
+        NUC_DIST.forEach(k => {
+            const el = document.getElementById('dist-info-' + k);
+            if (!el) return;
+            const e = dstOf(k), dist = distAtual(k), d = dadosGlobais[k];
+            let t = '';
+            if (e.erro) t = '⚠️ ' + e.erro;
+            else if (dist) {
+                t = `✅ Distribuição carregada (${e.link ? 'link' : esc(e.nome)}): ${dist.projs.length} projetos, ${Object.keys(dist.avals).length} avaliadores.`;
+                if (d && d.projs && d.projs.length) {
+                    const sem = d.projs.filter(p => !achaProjDist(dist, p.proj)).length;
+                    if (sem) t += ` ⚠️ ${sem} projeto(s) da planilha de avaliações não foram achados na distribuição (os títulos precisam ser iguais).`;
+                }
+                if (dist.diverge) t += ` ⚠️ ${dist.diverge} projeto(s) com avaliadores diferentes entre as abas das rodadas e o "Resumo Completo" — usando ${dist.fonte === 'resumo' ? 'o Resumo Completo' : 'as abas das rodadas'}.`;
             }
-            if (dist.diverge) t += ` ⚠️ ${dist.diverge} projeto(s) com avaliadores diferentes entre as abas das rodadas e o "Resumo Completo" — usando ${dist.fonte === 'resumo' ? 'o Resumo Completo' : 'as abas das rodadas'}.`;
-        }
-        el.innerHTML = t;
+            el.innerHTML = t;
+        });
     }
 
     // Casa o título (ou o ID no começo do texto) da planilha de avaliações com o projeto da distribuição
@@ -812,20 +820,21 @@ th,td{padding:8px}
     }
 
     // ===== Aba Duplicados e Incompletos (com Stand e botão de excluir na FECEG) =====
-    function btnExcluir(e, iguais) {
-        const i = regExcl.push({ aba: e.aba, linha: e.linha, proj: e.proj, aval: e.aval, nota: e.nota, iguais }) - 1;
+    function btnExcluir(e, iguais, k) {
+        e.k = k;
+        const i = regExcl.push({ k: e.k, aba: e.aba, linha: e.linha, proj: e.proj, aval: e.aval, nota: e.nota, iguais }) - 1;
         return `<button class="btn btn-small btn-danger no-print" title="Excluir esta avaliação da planilha (permanente)" onclick="excluirAvaliacao(${i})">🗑️ Excluir</button>`;
     }
 
     function corpoAlertas(k, d) {
-        const feceg = k === 'feceg', dist = feceg ? distAtual() : null, comStand = !!dist;
+        const feceg = NUC_DIST.includes(k), dist = distAtual(k), comStand = !!dist; // botões Excluir/Ver notas e Stand: núcleos com distribuição
         const stand = t => { const dp = achaProjDist(dist, t); return dp && dp.stand ? dp.stand + (dp.rodada ? ' (' + dp.rodada + ')' : '') : '—'; };
         const idDe = t => { const dp = achaProjDist(dist, t); return dp ? dp.id : '—'; };
-        const notasBtn = x => x.evs.map(e => `<span style="white-space:nowrap">${esc(e.aval)}: ${e.nota.toFixed(1)} ${btnExcluir(e, 1)}</span>`).join(' | ');
-        const aviso = feceg ? `<div class="instruction no-print" style="margin:4px 0 0 14px">🗑️ O botão <strong>Excluir</strong> apaga a linha da planilha de avaliações <strong>permanentemente</strong>. Ele só funciona com a URL do Apps Script de exclusão preenchida no card da FECEG.</div>` : '';
+        const notasBtn = x => x.evs.map(e => `<span style="white-space:nowrap">${esc(e.aval)}: ${e.nota.toFixed(1)} ${btnExcluir(e, 1, k)}</span>`).join(' | ');
+        const aviso = feceg ? `<div class="instruction no-print" style="margin:4px 0 0 14px">🗑️ O botão <strong>Excluir</strong> apaga a linha da planilha de avaliações <strong>permanentemente</strong>. Ele só funciona com a URL do Apps Script de exclusão preenchida no card deste núcleo.</div>` : '';
         const cabDup = ['Aba', 'Avaliador', 'Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Nota total', 'Linha na planilha'], feceg ? ['Ação'] : []);
         const linDup = d.dup.map(x => [x.aba, x.aval, x.proj].concat(comStand ? [idDe(x.proj), stand(x.proj)] : [], [x.nota.toFixed(1), x.linhaReal || x.linha],
-            feceg ? [btnExcluir({ aba: x.aba, linha: x.linhaReal || x.linha, proj: x.proj, aval: x.aval, nota: x.nota }, x.iguais)] : []));
+            feceg ? [btnExcluir({ aba: x.aba, linha: x.linhaReal || x.linha, proj: x.proj, aval: x.aval, nota: x.nota }, x.iguais, k)] : []));
         const cabInc = ['Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Categoria', 'Avaliações', 'Faltam', 'Avaliador: Nota']);
         const linInc = d.inc.map(x => [x.proj].concat(comStand ? [idDe(x.proj), stand(x.proj)] : [], [x.cat, x.qtd, 3 - x.qtd, feceg ? notasBtn(x) : x.notas]));
         const cabExc = ['Projeto'].concat(comStand ? ['ID', 'Stand'] : [], ['Categoria', 'Avaliações', 'Excedentes', 'Avaliador: Nota']);
@@ -840,14 +849,14 @@ th,td{padding:8px}
     }
 
     // Exclusão permanente: pede ao Apps Script (planilha de avaliações) para apagar a linha, conferindo projeto e avaliador antes
-    function salvarUrlExclusao(v) { try { localStorage.setItem('scti01_del_feceg', String(v || '').trim()); } catch (e) {} }
+    function salvarUrlExclusao(k, v) { try { localStorage.setItem('scti01_del_' + k, String(v || '').trim()); } catch (e) {} }
 
     function excluirAvaliacao(i) {
         const e = regExcl[i];
         if (!e) return;
-        const campo = document.getElementById('del-feceg');
+        const campo = document.getElementById('del-' + (e.k || 'feceg'));
         const url = campo ? campo.value.trim() : '';
-        if (!/^https:\/\/script\.google\.com\//.test(url)) { alert('Cole, no card da FECEG, a URL do Apps Script de exclusão (a que termina em /exec).'); return; }
+        if (!/^https:\/\/script\.google\.com\//.test(url)) { alert('Cole, no card deste núcleo, a URL do Apps Script de exclusão (a que termina em /exec).'); return; }
         if (Date.now() < bloqueioExcl) { alert('Aguarde alguns segundos: o painel está atualizando depois da última exclusão.'); return; }
         if (!confirm(`EXCLUIR PERMANENTEMENTE esta avaliação?\n\nAvaliador: ${e.aval}\nProjeto: ${e.proj}\nAba: ${e.aba}\nLinha: ${e.linha}\nNota total: ${e.nota.toFixed(1)}\n\nA linha será apagada da planilha de avaliações e NÃO poderá ser desfeita.`)) return;
         const senha = senhaExcl || prompt('Senha de exclusão (a mesma definida no Apps Script):');
@@ -911,7 +920,7 @@ th,td{padding:8px}
     function corpoAvaliacoes(k, d, modo) {
         const f = norm(filtroAval[k] || '');
         const casa = s => !f || norm(s).includes(f);
-        const feceg = k === 'feceg', dist = feceg ? distAtual() : null, comStand = !!dist; // Stand só na FECEG, quando a planilha de distribuição foi carregada
+        const feceg = k === 'feceg', dist = distAtual(k), comStand = !!dist; // Stand quando a planilha de distribuição do núcleo foi carregada
         const celStand = p => { const dp = achaProjDist(dist, p.proj); return dp ? standHtml(dp) : '<span class="pending">—</span>'; };
         const porAval = {};
         (d.avals || []).forEach(l => { (porAval[l.aval] = porAval[l.aval] || new Set()).add(l.proj); });
@@ -933,7 +942,7 @@ th,td{padding:8px}
             ? `<table><thead><tr><th>Avaliador</th><th style="text-align:center;width:100px">Projetos</th><th>Projetos que está avaliando</th></tr></thead><tbody>` +
               linhasAv.map(([a, p]) => `<tr><td><strong>${esc(a)}</strong></td><td style="text-align:center">${p.length}</td><td>${p.map(x => esc(x)).join(', ')}</td></tr>`).join('') + `</tbody></table>`
             : `<div class="empty-message">Nenhum avaliador encontrado.</div>`;
-        const tAval = feceg ? tabelaAvalFeceg(k, d, dist, casa) : tAvalOrig;
+        const tAval = (feceg || dist) ? tabelaAvalFeceg(k, d, dist, casa) : tAvalOrig;
         const tabProj = (lista, semInst) => `<table><thead><tr><th>Projeto</th>${comStand ? '<th style="width:70px">ID</th><th style="width:130px">Stand</th>' : ''}${semInst ? '' : '<th>Instituição</th>'}<th>Categoria</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
             lista.map(p => `<tr class="${p.qtd >= 3 ? 'liberado' : ''}"><td><strong>${esc(p.proj)}</strong></td>${comStand ? `<td><strong>${esc((achaProjDist(dist, p.proj) || {}).id || '—')}</strong></td><td>${celStand(p)}</td>` : ''}${semInst ? '' : `<td>${p.inst ? esc(p.inst) : '<span class="pending">—</span>'}</td>`}<td>${esc(p.cat)}</td><td style="text-align:center">${p.qtd}</td><td>${p.avals.map(x => esc(x)).join(', ')}</td><td>${p.qtd >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - p.qtd}</span>`}</td></tr>`).join('') + `</tbody></table>`;
         // ONIBUS: com dados extras carregados, separa os projetos por instituição
@@ -952,7 +961,10 @@ th,td{padding:8px}
     // Aba Status (FECEG): os 54 stands em ordem. Vermelho = nenhuma nota ainda; verde = já entrou nota em algum projeto do stand
     const TOTAL_STANDS = 54;
     function corpoStatus(k, d) {
-        const dist = distAtual();
+        const dist = distAtual(k);
+        // FECEG tem 54 stands; nos outros núcleos vale o maior número de stand da distribuição
+        const maxSt = dist ? Math.max(0, ...dist.projs.map(p => parseInt(String(p.stand || '').replace(/\D/g, ''), 10) || 0)) : 0;
+        const TOT = k === 'feceg' ? TOTAL_STANDS : Math.max(maxSt, 1);
         const porRod = {}; // rodada -> stand -> [{dp, qtd}]
         if (dist) {
             const rodNomes = [...new Set(dist.projs.filter(p => p.stand && p.rodada).map(p => p.rodada))];
@@ -967,7 +979,7 @@ th,td{padding:8px}
             });
             dist.projs.forEach(dp => {
                 const n = parseInt(String(dp.stand || '').replace(/\D/g, ''), 10);
-                if (!n || n < 1 || n > TOTAL_STANDS) return;
+                if (!n || n < 1 || n > TOT) return;
                 const r = dp.rodada || '';
                 ((porRod[r] = porRod[r] || {})[n] = porRod[r][n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0 });
             });
@@ -980,7 +992,7 @@ th,td{padding:8px}
         return aviso + rods.map(r => {
             const mapa = porRod[r] || {};
             let com = 0, cards = '';
-            for (let n = 1; n <= TOTAL_STANDS; n++) {
+            for (let n = 1; n <= TOT; n++) {
                 const itens = mapa[n] || [], ok = itens.some(i => i.qtd > 0);
                 if (ok) com++;
                 const det = itens.length
@@ -988,7 +1000,7 @@ th,td{padding:8px}
                     : `<div class="st-item">${dist ? 'sem projeto na distribuição' : 'sem nota'}</div>`;
                 cards += `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">Stand</div><div class="st-num">${n}</div>${det}</div>`;
             }
-            return `<h3>🚦 Status dos Stands${r ? ' — ' + esc(r) : ''} — <span class="badge-lib">${com}</span> de ${TOTAL_STANDS} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOTAL_STANDS - com}</span> sem nota</h3><div class="st-grid">${cards}</div>`;
+            return `<h3>🚦 Status dos Stands${r ? ' — ' + esc(r) : ''} — <span class="badge-lib">${com}</span> de ${TOT} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOT - com}</span> sem nota</h3><div class="st-grid">${cards}</div>`;
         }).join('');
     }
 
@@ -1017,7 +1029,7 @@ th,td{padding:8px}
             ? 'Nenhum link de dados extras informado: Instituição, Orientador e Meninas na Ciência não serão calculados. Cole o link no campo "dados extras" (o botão "Usar Link Salvo" só preenche se LINKS_SALVOS tiver o link extra, ex.: fecegx).'
             : 'A planilha de dados extras foi lida, mas nenhuma aba com as colunas Título/Projeto, Instituição, Orientador ou Autores foi reconhecida.';
         else if (d.geral.length && x.casados < d.geral.length) {
-            const dist = k === 'feceg' ? distAtual() : null;
+            const dist = distAtual(k);
             const lista = (x.sem || []).slice(0, 10).map(s => {
                 const dp = achaProjDist(dist, s.proj);
                 const ident = dp ? ` <span style="color:#64748b">(ID ${esc(dp.id)}${dp.stand ? ' · Stand ' + esc(dp.stand) : ''})</span>` : '';
@@ -1036,7 +1048,7 @@ th,td{padding:8px}
         Object.keys(NUC).forEach(k => {
             const d = dadosGlobais[k], n = NUC[k];
             // Só abre o ranking do núcleo se os dados foram carregados
-            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)) || (k === 'feceg' && distAtual()))) return;
+            if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)) || (NUC_DIST.includes(k) && distAtual(k)))) return;
             html += `<h2>${n.ttl}</h2>`;
             if (n.proj) html += avisoExtras(d, k);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
@@ -1047,7 +1059,7 @@ th,td{padding:8px}
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
-            if (k === 'feceg') abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
+            if (NUC_DIST.includes(k)) abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
             abas.push({ key: 'alert', op: true, rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () => corpoAlertas(k, d) });
@@ -1122,7 +1134,7 @@ th,td{padding:8px}
         if (!confirm("Deseja interromper a sincronização ativa e zerar o painel?")) return;
         if (intervaloSync) clearInterval(intervaloSync);
         limparEstado();
-        distLink = null; distArq = null; distArqNome = ''; distErro = '';
+        Object.keys(DST).forEach(x => delete DST[x]);
         Object.keys(NUC).forEach(k => {
             document.getElementById('url-' + k).value = "";
             const ext = document.getElementById('ext-' + k);
