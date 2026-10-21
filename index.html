@@ -399,6 +399,19 @@ th,td{padding:8px}
     }
     const nomesGrupo = {};
  
+    // Data (AAAA-MM-DD) do carimbo de data/hora do formulário: aceita texto dd/mm/aaaa, aaaa-mm-dd e número serial do Excel
+    function diaDe(v) {
+        if (v == null || v === '') return '';
+        const p2 = n => String(n).padStart(2, '0');
+        if (typeof v === 'number' && isFinite(v)) { const d = new Date(Math.round((v - 25569) * 86400000)); return d.getUTCFullYear() + '-' + p2(d.getUTCMonth() + 1) + '-' + p2(d.getUTCDate()); }
+        if (v instanceof Date && !isNaN(v)) return v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate());
+        const t = String(v).trim();
+        let m = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return m[3] + '-' + p2(m[2]) + '-' + p2(m[1]);
+        m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return m[1] + '-' + p2(m[2]) + '-' + p2(m[3]);
+        return '';
+    }
+    const hojeISO = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+
     function linhasAvaliacao(wb, k) {
         const out = [];
         wb = { SheetNames: abasUsadas(wb, k), Sheets: wb.Sheets };
@@ -410,6 +423,7 @@ th,td{padding:8px}
             if (!cp) return;
             const cc = cols.find(c => norm(c).startsWith('categoria')) || acha(cols, ['categor', 'modalidad', 'eixo', 'área', 'area']);
             const ca = acha(cols, ['avaliador']);
+            const ctd = cols.find(c => norm(c).startsWith('carimbo'));
             // Nível de Ensino dos autores (ex.: Ensino Médio, Fundamental, Técnico) — vem da própria planilha de avaliação, não da de dados extras
             const cne = cols.find(c => norm(c).includes('ensino') && !norm(c).includes('institui'));
             const dados = cols.filter(c => c !== cp && c !== cc && c !== ca && c !== cne && !IGNORAR.includes(norm(c)));
@@ -435,6 +449,7 @@ th,td{padding:8px}
                     proj: String(r[cp]).trim(), aba: sn, linha: rows.indexOf(r) + 2, linhaReal: r.__rowNum__ != null ? r.__rowNum__ + 1 : rows.indexOf(r) + 2,
                     cat: cc && !vazio(r[cc]) ? String(r[cc]).trim() : 'Geral',
                     aval: ca && !vazio(r[ca]) ? String(r[ca]).trim() : 'Desconhecido',
+                    dia: ctd ? diaDe(r[ctd]) : '',
                     nivelEnsino: cne && !vazio(r[cne]) ? String(r[cne]).trim() : '',
                     nota: pontuar(r),
                     notaODS: valorCriterio(r, colODS),
@@ -562,7 +577,7 @@ th,td{padding:8px}
         return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
                  gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, exc, podio, premiacoes, diag,
                  inst: conta(base, p => p.inst ? [p.inst] : []), orient: conta(geral, p => p.orient),
-                 avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba })),
+                 avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba, dia: l.dia })),
                  projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
     }
  
@@ -970,16 +985,19 @@ th,td{padding:8px}
         if (!abas.length) abas = todas.filter(n => !ehSec(n)); // sem abas "Auditório": usa todas, menos a "sec"
         const num = n => parseInt(String(n).replace(/\D/g, ''), 10) || 0;
         abas.sort((a, b) => (num(a) - num(b)) || String(a).localeCompare(String(b)));
+        // Só entram as avaliações do dia atual (pelo carimbo de data/hora); se a planilha não tiver carimbo, mostra tudo
+        const hoje = hojeISO(), temDia = (d.avals || []).some(l => l.dia);
+        const dataBR = hoje.split('-').reverse().join('/');
         const por = {};
-        (d.avals || []).forEach(l => { const e = por[l.aba] = por[l.aba] || { n: 0, p: new Set() }; e.n++; e.p.add(norm(l.proj)); });
+        (d.avals || []).filter(l => !temDia || l.dia === hoje).forEach(l => { const e = por[l.aba] = por[l.aba] || { n: 0, p: {} }; e.n++; e.p[l.proj] = (e.p[l.proj] || 0) + 1; });
         const com = abas.filter(a => por[a]).length;
         const cards = abas.map(a => {
             const e = por[a], ok = !!e;
-            return `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(a)}</div><div class="st-item" style="font-size:12px;margin-top:8px">${ok ? `✅ ${e.n} avaliaç${e.n > 1 ? 'ões' : 'ão'}<br>${e.p.size} projeto${e.p.size > 1 ? 's' : ''}` : '❌ sem nota'}</div></div>`;
+            return `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(a)}</div><div class="st-item" style="font-size:12px;margin-top:8px">${ok ? `✅ ${e.n} avaliaç${e.n > 1 ? 'ões' : 'ão'} · ${Object.keys(e.p).length} projeto${Object.keys(e.p).length > 1 ? 's' : ''}` : '❌ sem nota hoje'}</div>${ok ? `<div style="font-size:11px;text-align:left;margin-top:6px;line-height:1.3">${Object.keys(e.p).sort((x, y) => x.localeCompare(y)).map(pj => `• ${esc(pj)} (${e.p[pj]})`).join('<br>')}</div>` : ''}</div>`;
         }).join('');
         const sel = abaEscolhida[k] ? `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Está selecionada a aba "${esc(abaEscolhida[k])}" em "Aba do ranking": os outros auditórios aparecem sem nota. Escolha "Todas as abas juntas" para ver o quadro completo.</div>` : '';
         if (!abas.length) return `<div class="empty-message">Nenhuma aba de auditório encontrada na planilha de avaliações.</div>`;
-        return `<h3>🚦 Status dos Auditórios — <span class="badge-lib">${com}</span> de ${abas.length} já com nota · <span style="color:#9b2c2c;font-weight:bold">${abas.length - com}</span> sem nota</h3>` + sel + `<div class="st-grid">${cards}</div>`;
+        return `<h3>🚦 Status dos Auditórios — hoje, ${dataBR} — <span class="badge-lib">${com}</span> de ${abas.length} já com nota · <span style="color:#9b2c2c;font-weight:bold">${abas.length - com}</span> sem nota</h3>` + sel + (temDia ? '' : `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Não encontrei a coluna "Carimbo de data/hora" nas avaliações: estão sendo mostradas todas as datas.</div>`) + `<div class="st-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>`;
     }
 
     function corpoStatus(k, d) {
