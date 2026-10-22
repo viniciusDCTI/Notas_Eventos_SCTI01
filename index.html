@@ -108,7 +108,7 @@ th,td{padding:8px}
     </div>
  
     <div class="sync-section no-print">
-        <div class="sync-input-group" style="margin:0 0 12px"><label style="font-size:13px;font-weight:bold;color:#1b365d;align-self:center">Planilha:</label><select id="nuc-sel" class="sync-input" onchange="mostrarNucleo(this.value)"></select></div>
+        <div class="sync-input-group" style="margin:0 0 12px"><label style="font-size:13px;font-weight:bold;color:#1b365d;align-self:center">Planilha:</label><select id="nuc-sel" class="sync-input" onchange="mostrarNucleo(this.value); renderizarTabelas()"></select></div>
         <div class="preset-container" id="presets"></div>
         <div style="text-align: center; margin-top: 15px;">
             <button class="btn" style="background-color: #2b6cb0;" onclick="iniciarSincronizacaoGeral()">🔄 Iniciar Sincronização Live (Todos)</button>
@@ -1130,6 +1130,7 @@ th,td{padding:8px}
         atualizarInfoDist();
         let html = '';
         Object.keys(NUC).forEach(k => {
+            if (k !== document.getElementById('nuc-sel').value) return; // mostra só o ranking da planilha escolhida na lista
             const d = dadosGlobais[k], n = NUC[k];
             // Só abre o ranking do núcleo se os dados foram carregados
             if (!(d.geral.length || (n.proj && (d.inc.length || d.dup.length)) || (NUC_DIST.includes(k) && distAtual(k)))) return;
