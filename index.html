@@ -73,6 +73,7 @@ tr:nth-child(even) td{background-color:#f8fafc}
 .st-n{font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px;opacity:.8}
 .st-num{font-size:30px;font-weight:bold;line-height:1.1}
 .st-item{font-size:11px;margin-top:4px;line-height:1.3}
+.st-av{font-size:10px;text-align:left;margin-top:3px;line-height:1.3;color:#1a202c;word-break:break-word}
 /* Celular: só ajusta telas estreitas; o computador não muda */
 @media (max-width:768px){
 body{padding:8px}
@@ -914,6 +915,18 @@ th,td{padding:8px}
             `</tbody></table>`;
     }
  
+    // FECEG: todas as instituições participantes, considerando todos os projetos que aparecem nas avaliações (lista completa, sem limite)
+    function tabelaTodasInst(d) {
+        const SEM = 'Sem instituição informada', m = {};
+        (d.projs || []).forEach(p => { const n = p.inst || SEM; const e = m[n] = m[n] || { proj: 0, aval: 0 }; e.proj++; e.aval += p.qtd; });
+        const lista = Object.entries(m).sort((a, b) => (a[0] === SEM) - (b[0] === SEM) || b[1].proj - a[1].proj || a[0].localeCompare(b[0]));
+        const real = lista.filter(x => x[0] !== SEM).length;
+        const tit = `<h3>🏫 Todas as instituições participantes — presentes nas avaliações (${real} instituição(ões))</h3>`;
+        if (!lista.length) return tit + `<div class="empty-message">Nenhuma avaliação encontrada ainda.</div>`;
+        return tit + `<table><thead><tr><th style="width:80px;text-align:center">Nº</th><th>Instituição</th><th style="text-align:center;width:160px">Projetos avaliados</th><th style="text-align:center;width:160px">Avaliações recebidas</th></tr></thead><tbody>` +
+            lista.map(([n, e], i) => `<tr><td style="text-align:center">${i + 1}</td><td><strong>${esc(n)}</strong></td><td style="text-align:center;font-weight:bold">${e.proj}</td><td style="text-align:center">${e.aval}</td></tr>`).join('') + `</tbody></table>`;
+    }
+
     function tabelaSimples(cabs, linhas, vazio) {
         if (!linhas.length) return `<div class="empty-message">${vazio}</div>`;
         return `<table><thead><tr>${cabs.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>` +
@@ -990,11 +1003,11 @@ th,td{padding:8px}
         const hoje = hojeISO(), temDia = (d.avals || []).some(l => l.dia);
         const dataBR = hoje.split('-').reverse().join('/');
         const por = {};
-        (d.avals || []).filter(l => !temDia || l.dia === hoje).forEach(l => { const e = por[l.aba] = por[l.aba] || { n: 0, p: {} }; e.n++; e.p[l.proj] = (e.p[l.proj] || 0) + 1; });
+        (d.avals || []).filter(l => !temDia || l.dia === hoje).forEach(l => { const e = por[l.aba] = por[l.aba] || { n: 0, p: {}, av: {} }; e.n++; e.p[l.proj] = (e.p[l.proj] || 0) + 1; (e.av[l.proj] = e.av[l.proj] || []).push(l.aval); });
         const com = abas.filter(a => por[a]).length;
         const cards = abas.map(a => {
             const e = por[a], ok = !!e;
-            return `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(a)}</div><div class="st-item" style="font-size:12px;margin-top:8px">${ok ? `✅ ${e.n} avaliaç${e.n > 1 ? 'ões' : 'ão'} · ${Object.keys(e.p).length} projeto${Object.keys(e.p).length > 1 ? 's' : ''}` : '❌ sem nota hoje'}</div>${ok ? `<div style="font-size:11px;text-align:left;margin-top:6px;line-height:1.3">${Object.keys(e.p).sort((x, y) => x.localeCompare(y)).map(pj => `• ${esc(pj)} (${e.p[pj]})`).join('<br>')}</div>` : ''}</div>`;
+            return `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(a)}</div><div class="st-item" style="font-size:12px;margin-top:8px">${ok ? `✅ ${e.n} avaliaç${e.n > 1 ? 'ões' : 'ão'} · ${Object.keys(e.p).length} projeto${Object.keys(e.p).length > 1 ? 's' : ''}` : '❌ sem nota hoje'}</div>${ok ? `<div style="font-size:11px;text-align:left;margin-top:6px;line-height:1.3">${Object.keys(e.p).sort((x, y) => x.localeCompare(y)).map(pj => `• ${esc(pj)} (${e.p[pj]})<div class="st-av">👤 ${e.av[pj].map(esc).join(', ')}</div>`).join('<br>')}</div>` : ''}</div>`;
         }).join('');
         const sel = abaEscolhida[k] ? `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Está selecionada a aba "${esc(abaEscolhida[k])}" em "Aba do ranking": os outros auditórios aparecem sem nota. Escolha "Todas as abas juntas" para ver o quadro completo.</div>` : '';
         if (!abas.length) return `<div class="empty-message">Nenhuma aba de auditório encontrada na planilha de avaliações.</div>`;
@@ -1016,14 +1029,14 @@ th,td{padding:8px}
                 if (!dp) return;
                 // a avaliação só conta na rodada da própria aba (se o nome da aba não lembrar nenhuma rodada, conta direto)
                 if (dp.rodada && rodNomes.some(r => mesmaRodada(l.aba, r)) && !mesmaRodada(l.aba, dp.rodada)) return;
-                if (!avDe.has(dp)) avDe.set(dp, new Set());
-                avDe.get(dp).add(norm(l.aval));
+                if (!avDe.has(dp)) avDe.set(dp, new Map());
+                if (!avDe.get(dp).has(norm(l.aval))) avDe.get(dp).set(norm(l.aval), l.aval);
             });
             dist.projs.forEach(dp => {
                 const n = parseInt(String(dp.stand || '').replace(/\D/g, ''), 10);
                 if (!n || n < 1 || n > TOT) return;
                 const r = dp.rodada || '';
-                ((porRod[r] = porRod[r] || {})[n] = porRod[r][n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0 });
+                ((porRod[r] = porRod[r] || {})[n] = porRod[r][n] || []).push({ dp, qtd: avDe.has(dp) ? avDe.get(dp).size : 0, nomes: avDe.has(dp) ? [...avDe.get(dp).values()] : [] });
             });
         }
         let rods = Object.keys(porRod).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
@@ -1038,11 +1051,11 @@ th,td{padding:8px}
                 const itens = mapa[n] || [], ok = itens.some(i => i.qtd > 0);
                 if (ok) com++;
                 const det = itens.length
-                    ? itens.map(i => `<div class="st-item">ID ${esc(i.dp.id)}<br>${i.qtd > 0 ? '✅ ' + i.qtd + ' avaliaç' + (i.qtd > 1 ? 'ões' : 'ão') : '❌ sem nota'}</div>`).join('')
+                    ? itens.map(i => `<div class="st-item">ID ${esc(i.dp.id)}<br>${i.qtd > 0 ? '✅ ' + i.qtd + ' avaliaç' + (i.qtd > 1 ? 'ões' : 'ão') : '❌ sem nota'}${i.nomes.length ? `<div class="st-av">👤 ${i.nomes.map(esc).join('<br>👤 ')}</div>` : ''}</div>`).join('')
                     : `<div class="st-item">${dist ? 'sem projeto na distribuição' : 'sem nota'}</div>`;
                 cards += `<div class="st-card ${ok ? 'st-ok' : 'st-no'}"><div class="st-n">Stand</div><div class="st-num">${n}</div>${det}</div>`;
             }
-            return `<h3>🚦 Status dos Stands${r ? ' — ' + esc(r) : ''} — <span class="badge-lib">${com}</span> de ${TOT} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOT - com}</span> sem nota</h3><div class="st-grid">${cards}</div>`;
+            return `<h3>🚦 Status dos Stands${r ? ' — ' + esc(r) : ''} — <span class="badge-lib">${com}</span> de ${TOT} já com nota · <span style="color:#9b2c2c;font-weight:bold">${TOT - com}</span> sem nota</h3><div class="st-grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr))">${cards}</div>`;
         }).join('');
     }
 
@@ -1100,7 +1113,7 @@ th,td{padding:8px}
             (d.gruposEnsino || []).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
             abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
-                `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) });
+                `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) + (k === 'feceg' ? tabelaTodasInst(d) : '') });
             if (NUC_DIST.includes(k)) abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
