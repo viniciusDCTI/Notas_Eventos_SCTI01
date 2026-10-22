@@ -1014,8 +1014,37 @@ th,td{padding:8px}
         return `<h3>🚦 Status dos Auditórios — hoje, ${dataBR} — <span class="badge-lib">${com}</span> de ${abas.length} já com nota · <span style="color:#9b2c2c;font-weight:bold">${abas.length - com}</span> sem nota</h3>` + sel + (temDia ? '' : `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Não encontrei a coluna "Carimbo de data/hora" nas avaliações: estão sendo mostradas todas as datas.</div>`) + `<div class="st-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>`;
     }
 
+    // Status da MOSTRA: um quadro por aba original da planilha (Case Empreendedor e Exposição de Produtos), sem limite de projetos
+    function corpoStatusMostra(k, d) {
+        const todas = abasPlan[k] || [];
+        let abas = todas.filter(n => { const t = semAcento(String(n)); return t.includes('case') || t.includes('empreendedor') || t.includes('exposi') || t.includes('produto'); });
+        let aviso = '';
+        if (!abas.length && todas.length) {
+            abas = todas.slice();
+            aviso = `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Não encontrei abas com nome "Case Empreendedor" ou "Exposição de Produtos": estão sendo mostradas todas as abas da planilha.</div>`;
+        }
+        if (!abas.length) return `<div class="empty-message">Nenhuma aba encontrada na planilha de avaliações.</div>`;
+        const sel = abaEscolhida[k] ? `<div class="instruction" style="margin:4px 0 0 14px">⚠️ Está selecionada a aba "${esc(abaEscolhida[k])}" em "Aba do ranking": as outras abas aparecem sem nota. Escolha "Todas as abas juntas" para ver o quadro completo.</div>` : '';
+        const dados = abas.map(a => {
+            const por = {};
+            let n = 0;
+            (d.avals || []).filter(l => l.aba === a).forEach(l => { n++; const e = por[l.proj] = por[l.proj] || { n: 0, av: [] }; e.n++; e.av.push(l.aval); });
+            const nomes = Object.keys(por).sort((x, y) => x.localeCompare(y));
+            return { a, n, por, nomes, lib: nomes.filter(p => por[p].n >= 3).length };
+        });
+        const cards = dados.map(x => `<div class="st-card ${x.n ? 'st-ok' : 'st-no'}"><div class="st-n">${esc(x.a)}</div><div class="st-num">${x.n}</div><div class="st-item">${x.n ? `avaliaç${x.n > 1 ? 'ões' : 'ão'} · ${x.nomes.length} projeto${x.nomes.length > 1 ? 's' : ''}` : '❌ sem nota'}</div></div>`).join('');
+        const tabelas = dados.map(x => `<h3>🚦 ${esc(x.a)} — ${x.n} avaliaç${x.n === 1 ? 'ão' : 'ões'} em ${x.nomes.length} projeto(s) · <span class="badge-lib">${x.lib}</span> liberado(s) (3 ou mais avaliações)</h3>` +
+            (x.nomes.length
+                ? `<table><thead><tr><th>Projeto</th><th style="text-align:center;width:100px">Avaliações</th><th>Avaliadores</th><th style="width:130px">Situação</th></tr></thead><tbody>` +
+                  x.nomes.map(p => { const e = x.por[p]; return `<tr class="${e.n >= 3 ? 'liberado' : ''}"><td><strong>${esc(p)}</strong></td><td style="text-align:center">${e.n}</td><td>${e.av.map(esc).join(', ')}</td><td>${e.n >= 3 ? '<span class="badge-lib">✅ Liberado</span>' : `<span class="badge-falta">⏳ Faltam ${3 - e.n}</span>`}</td></tr>`; }).join('') + `</tbody></table>`
+                : `<div class="empty-message">Nenhuma avaliação nesta aba ainda.</div>`)).join('');
+        const tot = dados.reduce((s, x) => s + x.n, 0);
+        return `<h3>🚦 Status da Mostra — ${tot} avaliaç${tot === 1 ? 'ão' : 'ões'} no total</h3>` + aviso + sel + `<div class="st-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">${cards}</div>` + tabelas;
+    }
+
     function corpoStatus(k, d) {
         if (k === 'semcitec') return corpoStatusAuditorios(k, d);
+        if (k === 'mostra') return corpoStatusMostra(k, d);
         const dist = distAtual(k);
         // FECEG tem 54 stands; nos outros núcleos vale o maior número de stand da distribuição
         const maxSt = dist ? Math.max(0, ...dist.projs.map(p => parseInt(String(p.stand || '').replace(/\D/g, ''), 10) || 0)) : 0;
@@ -1110,11 +1139,11 @@ th,td{padding:8px}
  
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
             d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + criarEstruturaTabela(`table-${k}-${i}`, l) }));
-            (d.gruposEnsino || []).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
-            abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
+            (k === 'mostra' ? [] : (d.gruposEnsino || [])).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
+            if (k !== 'mostra') abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
                 `<h3>🏛️ Top Instituições${d.podio ? ' — projetos no pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
                 `<h3>👨‍🏫 Top Orientadores</h3>` + tabelaTop('Orientador', d.orient, 'Projetos', 'top-orient-' + k) + (k === 'feceg' ? tabelaTodasInst(d) : '') });
-            if (NUC_DIST.includes(k)) abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
+            if (NUC_DIST.includes(k) || k === 'mostra') abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
             abas.push({ key: 'alert', op: true, rot: `⚠️ Duplicados e Incompletos (${d.dup.length + d.inc.length + (d.exc || []).length})`, corpo: () => corpoAlertas(k, d) });
