@@ -531,13 +531,13 @@ th,td{padding:8px}
         });
         geral.sort((a, b) => b.total - a.total);
         if (k === 'feceg' && geral.length) geral[0].febrace = true;
-        // SEMCITEC: o projeto com a maior nota do Ranking Geral recebe o prêmio Projeto Destaque e não entra nos demais rankings
+        // SEMCITEC: o projeto com a maior nota do Ranking Geral recebe o prêmio Projeto Destaque e TAMBÉM a premiação de Modalidade + Eixo (continua no ranking do seu grupo)
         if (k === 'semcitec' && geral.length) geral[0].destaque = true;
         const g = {};
-        geral.forEach(p => { if (!p.febrace && !p.destaque) (g[p.grupo] = g[p.grupo] || []).push(p); });
+        geral.forEach(p => { if (!p.febrace) (g[p.grupo] = g[p.grupo] || []).push(p); });
         // Ranking por Nível de Ensino (ex.: Ensino Médio, Fundamental, Técnico) — também exclui o 1º geral já premiado com a vaga FEBRACE
         const gEnsino = {};
-        geral.forEach(p => { if (!p.febrace && !p.destaque && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
+        geral.forEach(p => { if (!p.febrace && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
         // Se o mesmo nome já existe como Modalidade/Categoria (ex.: "Ensino Médio"), junta numa aba só, sem repetir projeto
         Object.keys(gEnsino).forEach(t => {
             if (!g[t]) return;
@@ -557,12 +557,12 @@ th,td{padding:8px}
         // SEMCITEC e FECEG: instituições (e, na SEMCITEC, também orientadores) contados só entre os premiados = pódio (1º ao 3º) de cada modalidade
         const podio = k === 'feceg' || k === 'semcitec';
         const destaqueOrient = k === 'semcitec';
-        const base = podio ? [...geral.filter(p => p.destaque), ...Object.values(g).flatMap(l => l.slice(0, 3))] : geral;
+        const base = podio ? [...new Map([...geral.filter(p => p.destaque), ...Object.values(g).flatMap(l => l.slice(0, 3))].map(p => [norm(p.equipe), p])).values()] : geral;
         // SEMCITEC: qual prêmio cada projeto recebeu (para a lista de projetos premiados de cada instituição/orientador)
         const premioDe = {};
         if (k === 'semcitec') {
             Object.keys(g).sort().forEach(t => g[t].slice(0, 3).forEach((p, i) => { premioDe[norm(p.equipe)] = `${i + 1}º lugar — ${t}`; }));
-            geral.filter(p => p.destaque).forEach(p => { premioDe[norm(p.equipe)] = '🏆 Projeto Destaque (Ranking Geral)'; });
+            geral.filter(p => p.destaque).forEach(p => { const ch = norm(p.equipe); premioDe[ch] = '🏆 Projeto Destaque (Ranking Geral)' + (premioDe[ch] ? ' + ' + premioDe[ch] : ''); });
         }
         const infoPrem = p => ({ equipe: p.equipe, premio: premioDe[norm(p.equipe)] || '', total: p.total });
         const contaProjs = (lista, f) => {
@@ -1189,8 +1189,8 @@ th,td{padding:8px}
             if (n.proj) html += avisoExtras(d, k);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
  
-            const notaDest = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o Projeto Destaque (${esc(d.destaque)}), maior nota do Ranking Geral, que fica fora dos demais rankings.</div>` : '';
-            const notaDestGeral = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">🏆 Projeto Destaque: ${esc(d.destaque)} (maior nota). Ele não entra nos demais rankings.</div>` : '';
+            const notaDest = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">Projeto Destaque: ${esc(d.destaque)}, maior nota do Ranking Geral, que também recebe a premiação de Modalidade + Eixo e por isso continua neste ranking.</div>` : '';
+            const notaDestGeral = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">🏆 Projeto Destaque: ${esc(d.destaque)} (maior nota). Ele também recebe a premiação de Modalidade + Eixo e continua no ranking do seu grupo.</div>` : '';
             const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + notaDestGeral + criarEstruturaTabela('table-' + k, d.geral) }];
             d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + notaDest + criarEstruturaTabela(`table-${k}-${i}`, l) }));
             (k === 'mostra' ? [] : (d.gruposEnsino || [])).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + notaDest + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
