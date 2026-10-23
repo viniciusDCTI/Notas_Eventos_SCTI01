@@ -185,6 +185,8 @@ th,td{padding:8px}
     const LIMITE_EXCESSO = 4; // projetos com MAIS que este número de avaliações aparecem em "Duplicados e Incompletos"
     const expandidas = {}; // tabelas com a lista completa aberta (guardado para não fechar na atualização automática)
     function alternarExpansao(id) { expandidas[id] = !expandidas[id]; renderizarTabelas(); }
+    const premiadosAbertos = {}; // SEMCITEC: instituições/orientadores com a lista de projetos premiados aberta
+    function alternarPremiados(kk) { premiadosAbertos[kk] = !premiadosAbertos[kk]; renderizarTabelas(); }
     function linhaVerMais(id, total, cols) {
         if (total <= TOP_N) return '';
         const aberto = !!expandidas[id];
@@ -529,11 +531,13 @@ th,td{padding:8px}
         });
         geral.sort((a, b) => b.total - a.total);
         if (k === 'feceg' && geral.length) geral[0].febrace = true;
+        // SEMCITEC: o projeto com a maior nota do Ranking Geral recebe o prêmio Projeto Destaque e não entra nos demais rankings
+        if (k === 'semcitec' && geral.length) geral[0].destaque = true;
         const g = {};
-        geral.forEach(p => { if (!p.febrace) (g[p.grupo] = g[p.grupo] || []).push(p); });
+        geral.forEach(p => { if (!p.febrace && !p.destaque) (g[p.grupo] = g[p.grupo] || []).push(p); });
         // Ranking por Nível de Ensino (ex.: Ensino Médio, Fundamental, Técnico) — também exclui o 1º geral já premiado com a vaga FEBRACE
         const gEnsino = {};
-        geral.forEach(p => { if (!p.febrace && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
+        geral.forEach(p => { if (!p.febrace && !p.destaque && p.nivel) (gEnsino[p.nivel] = gEnsino[p.nivel] || []).push(p); });
         // Se o mesmo nome já existe como Modalidade/Categoria (ex.: "Ensino Médio"), junta numa aba só, sem repetir projeto
         Object.keys(gEnsino).forEach(t => {
             if (!g[t]) return;
@@ -553,7 +557,19 @@ th,td{padding:8px}
         // SEMCITEC e FECEG: instituições (e, na SEMCITEC, também orientadores) contados só entre os premiados = pódio (1º ao 3º) de cada modalidade
         const podio = k === 'feceg' || k === 'semcitec';
         const destaqueOrient = k === 'semcitec';
-        const base = podio ? Object.values(g).flatMap(l => l.slice(0, 3)) : geral;
+        const base = podio ? [...geral.filter(p => p.destaque), ...Object.values(g).flatMap(l => l.slice(0, 3))] : geral;
+        // SEMCITEC: qual prêmio cada projeto recebeu (para a lista de projetos premiados de cada instituição/orientador)
+        const premioDe = {};
+        if (k === 'semcitec') {
+            Object.keys(g).sort().forEach(t => g[t].slice(0, 3).forEach((p, i) => { premioDe[norm(p.equipe)] = `${i + 1}º lugar — ${t}`; }));
+            geral.filter(p => p.destaque).forEach(p => { premioDe[norm(p.equipe)] = '🏆 Projeto Destaque (Ranking Geral)'; });
+        }
+        const infoPrem = p => ({ equipe: p.equipe, premio: premioDe[norm(p.equipe)] || '', total: p.total });
+        const contaProjs = (lista, f) => {
+            const c = {};
+            lista.forEach(p => f(p).forEach(n => (c[n] = c[n] || []).push(p)));
+            return Object.entries(c).map(([n, ps]) => [n, ps.length, ps.map(infoPrem)]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        };
         const conta = (lista, f) => {
             const c = {};
             lista.forEach(p => f(p).forEach(n => c[n] = (c[n] || 0) + 1));
@@ -577,12 +593,12 @@ th,td{padding:8px}
                     const exib = limpaOrient(nome), ch = chaveNome(exib).replace(/\b(?:de|da|do|das|dos|e)\b/g, ' ').replace(/\s+/g, ' ').trim();
                     if (!ch) return;
                     let gr = grupos.find(x => quaseIgual(x.ch, ch));
-                    if (!gr) grupos.push(gr = { ch, q: 0, nomes: {} });
+                    if (!gr) grupos.push(gr = { ch, q: 0, nomes: {}, projs: [] });
                     gr.nomes[exib] = (gr.nomes[exib] || 0) + 1;
-                    if (!tocados.has(gr)) { tocados.add(gr); gr.q++; } // a mesma pessoa conta uma vez por projeto
+                    if (!tocados.has(gr)) { tocados.add(gr); gr.q++; gr.projs.push(p); } // a mesma pessoa conta uma vez por projeto
                 });
             });
-            return grupos.map(gr => [Object.entries(gr.nomes).sort((a, b) => b[1] - a[1] || (/[^\x00-\x7f]/.test(b[0]) - /[^\x00-\x7f]/.test(a[0])) || a[0].localeCompare(b[0]))[0][0], gr.q])
+            return grupos.map(gr => [Object.entries(gr.nomes).sort((a, b) => b[1] - a[1] || (/[^\x00-\x7f]/.test(b[0]) - /[^\x00-\x7f]/.test(a[0])) || a[0].localeCompare(b[0]))[0][0], gr.q, gr.projs.map(infoPrem)])
                 .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
         };
         // FECEG: premiações exclusivas — pódio (1º ao 3º) de cada Nível de Ensino, Meninas na Ciência, ODS e Projeto Tema, sem repetir projeto já premiado
@@ -604,9 +620,9 @@ th,td{padding:8px}
             const tema = geral.filter(p => !usados.has(norm(p.equipe)) && p.notaTema > 0).sort((a, b) => b.notaTema - a.notaTema)[0];
             premiacoes = { meninas, ods, tema };
         }
-        return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
+        return { geral, febrace: geral.length && geral[0].febrace ? geral[0].equipe : '', destaque: geral.length && geral[0].destaque ? geral[0].equipe : '', grupos: Object.keys(g).sort().map(t => [t, g[t]]),
                  gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, exc, podio, destaqueOrient, premiacoes, diag,
-                 inst: conta(base, p => p.inst ? [p.inst] : []), orient: destaqueOrient ? contaOrient(base) : conta(geral, p => p.orient),
+                 inst: destaqueOrient ? contaProjs(base, p => p.inst ? [p.inst] : []) : conta(base, p => p.inst ? [p.inst] : []), orient: destaqueOrient ? contaOrient(base) : conta(geral, p => p.orient),
                  avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba, dia: l.dia })),
                  projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
     }
@@ -936,10 +952,17 @@ th,td{padding:8px}
         renderizarTabelas();
     }
  
-    function tabelaTop(nome, lista, rotulo, id) {
+    function tabelaTop(nome, lista, rotulo, id, detalhe) {
         if (!lista.length) return `<div class="empty-message">Sem dados de ${nome.toLowerCase()}. Informe o link de dados extras com essa coluna.</div>`;
+        const linha = ([n, q, ps], i) => {
+            const kk = id + '|' + n, aberto = !!(detalhe && ps && premiadosAbertos[kk]);
+            const cel = detalhe && ps ? `<button class="btn btn-small btn-secondary" data-k="${esc(kk)}" onclick="alternarPremiados(this.dataset.k)" title="Ver os projetos premiados">${q} ${aberto ? '▲' : '▼'}</button>` : q;
+            let r = `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${cel}</td></tr>`;
+            if (aberto) r += `<tr><td></td><td colspan="2" style="background:#f8fafc">` + ps.map(p => `<div style="padding:4px 0">🏆 <strong>${esc(p.equipe)}</strong> <span class="evaluator-name" style="font-style:normal">${esc(p.premio)} · ${p.total.toFixed(1)} pts</span></div>`).join('') + `</td></tr>`;
+            return r;
+        };
         return `<table><thead><tr><th style="width: 80px; text-align: center;">Posição</th><th>${nome}</th><th style="text-align: center; width: 180px;">${rotulo}</th></tr></thead><tbody>` +
-            (expandidas[id] ? lista : lista.slice(0, TOP_N)).map(([n, q], i) => `<tr><td style="text-align: center;"><span class="rank-badge ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}º</span></td><td><strong>${esc(n)}</strong></td><td style="text-align: center; font-weight: bold;">${q}</td></tr>`).join('') + linhaVerMais(id, lista.length, 3) +
+            (expandidas[id] ? lista : lista.slice(0, TOP_N)).map(linha).join('') + linhaVerMais(id, lista.length, 3) +
             `</tbody></table>`;
     }
  
@@ -1166,12 +1189,14 @@ th,td{padding:8px}
             if (n.proj) html += avisoExtras(d, k);
             if (!n.proj) { html += criarEstruturaTabela('table-' + k, d.geral); return; }
  
-            const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + criarEstruturaTabela('table-' + k, d.geral) }];
-            d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + criarEstruturaTabela(`table-${k}-${i}`, l) }));
-            (k === 'mostra' ? [] : (d.gruposEnsino || [])).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
+            const notaDest = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o Projeto Destaque (${esc(d.destaque)}), maior nota do Ranking Geral, que fica fora dos demais rankings.</div>` : '';
+            const notaDestGeral = d.destaque ? `<div class="instruction" style="margin:4px 0 0 14px">🏆 Projeto Destaque: ${esc(d.destaque)} (maior nota). Ele não entra nos demais rankings.</div>` : '';
+            const abas = [{ key: 'geral', rot: '🏅 Ranking Geral', corpo: () => `<h3>🏅 Ranking Geral</h3>` + notaDestGeral + criarEstruturaTabela('table-' + k, d.geral) }];
+            d.grupos.forEach(([t, l], i) => abas.push({ key: 'g:' + t, rot: '📂 ' + t, corpo: () => `<h3>📂 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + notaDest + criarEstruturaTabela(`table-${k}-${i}`, l) }));
+            (k === 'mostra' ? [] : (d.gruposEnsino || [])).forEach(([t, l], i) => abas.push({ key: 'ens:' + t, rot: '🎓 ' + t, corpo: () => `<h3>🎓 ${esc(t)}</h3>` + (d.febrace ? `<div class="instruction" style="margin:4px 0 0 14px">Sem o 1º do Ranking Geral (${esc(d.febrace)}), que fica com a vaga na FEBRACE.</div>` : '') + `<div class="instruction" style="margin:4px 0 0 14px">O pódio aqui (1º ao 3º) é uma premiação de maior peso e por isso fica fora do pool de Meninas na Ciência, ODS e Projeto Tema.</div>` + notaDest + criarEstruturaTabela(`table-ens-${k}-${i}`, l) }));
             if (k !== 'mostra') abas.push({ key: 'inst', rot: '🏛️ Instituições e Orientadores', corpo: () =>
-                `<h3>🏛️ ${d.destaqueOrient ? 'Instituição Destaque' : 'Top Instituições'}${d.podio ? ' — projetos premiados: pódio (1º ao 3º) das modalidades' + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k) +
-                `<h3>👨‍🏫 ${d.destaqueOrient ? 'Orientador Destaque — projetos premiados: pódio (1º ao 3º) das modalidades' : 'Top Orientadores'}</h3>` + tabelaTop('Orientador', d.orient, d.destaqueOrient ? 'Projetos premiados' : 'Projetos', 'top-orient-' + k) + (k === 'feceg' ? tabelaTodasInst(d) : '') });
+                `<h3>🏛️ ${d.destaqueOrient ? 'Instituição Destaque' : 'Top Instituições'}${d.podio ? ' — projetos premiados: pódio (1º ao 3º) das modalidades' + (d.destaque ? ' e Projeto Destaque' : '') + (d.febrace ? ', após a vaga da FEBRACE' : '') : ''}</h3>` + tabelaTop('Instituição', d.inst, d.podio ? 'Projetos premiados' : 'Projetos', 'top-inst-' + k, d.destaqueOrient) +
+                `<h3>👨‍🏫 ${d.destaqueOrient ? 'Orientador Destaque — projetos premiados: pódio (1º ao 3º) das modalidades e Projeto Destaque' : 'Top Orientadores'}</h3>` + tabelaTop('Orientador', d.orient, d.destaqueOrient ? 'Projetos premiados' : 'Projetos', 'top-orient-' + k, d.destaqueOrient) + (k === 'feceg' ? tabelaTodasInst(d) : '') });
             if (NUC_DIST.includes(k) || k === 'mostra') abas.push({ key: 'status', op: true, rot: '🚦 Status', corpo: () => corpoStatus(k, d) });
             abas.push({ key: 'aval', op: true, rot: '📝 Avaliações', corpo: () => corpoAvaliacoes(k, d) });
             abas.push({ key: 'onibus', op: true, rot: '📋 Situação', corpo: () => corpoAvaliacoes(k, d, 'onibus') });
@@ -1232,7 +1257,7 @@ th,td{padding:8px}
             const cel = (b, a) => a ? `${b.toFixed(1)} <span class="evaluator-name">👤 ${esc(a)}</span>` : `<span class="pending">❌ Pendente</span>`;
             t += `<tr>
                 <td style="text-align: center;"><span class="rank-badge ${badge}">${index + 1}º</span></td>
-                <td><strong>${esc(item.equipe)}</strong>${item.inst ? `<span class="evaluator-name" style="font-style:normal">🏫 ${esc(item.inst)}</span>` : ''}${item.autor && item.autor.length ? `<span class="evaluator-name" style="font-style:normal">🧑‍🎓 ${esc(item.autor.join(', '))}</span>` : ''}${item.sub ? `<span class="evaluator-name">${esc(item.sub)}</span>` : ''}${item.febrace ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Vaga na FEBRACE</span>` : ''}</td>
+                <td><strong>${esc(item.equipe)}</strong>${item.inst ? `<span class="evaluator-name" style="font-style:normal">🏫 ${esc(item.inst)}</span>` : ''}${item.autor && item.autor.length ? `<span class="evaluator-name" style="font-style:normal">🧑‍🎓 ${esc(item.autor.join(', '))}</span>` : ''}${item.sub ? `<span class="evaluator-name">${esc(item.sub)}</span>` : ''}${item.febrace ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Vaga na FEBRACE</span>` : ''}${item.destaque ? `<span class="evaluator-name" style="color:#92400e;font-weight:bold;font-style:normal">🏆 Projeto Destaque</span>` : ''}</td>
                 <td style="text-align: center;">${cel(item.b1, item.a1)}</td>
                 <td style="text-align: center;">${cel(item.b2, item.a2)}</td>
                 <td style="text-align: center;">${cel(item.b3, item.a3)}</td>
