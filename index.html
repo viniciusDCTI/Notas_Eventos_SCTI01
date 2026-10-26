@@ -118,6 +118,7 @@ th,td{padding:8px}
  
     <div class="actions-bar no-print">
         <button class="btn btn-danger" onclick="limparDados()" style="float: left;">🗑️ Interromper e Limpar</button>
+        <button class="btn btn-success" onclick="exportarMalaDireta()" title="Gera um Excel com Participantes, Vencedores e Premiados, Orientadores e Avaliadores (só quem consta nota)">📥 Exportar Excel (Mala Direta)</button>
         <button class="btn btn-secondary" onclick="exportRankingToImage()">📸 Salvar Ranking como Imagem</button>
         <div style="clear: both;"></div>
     </div>
@@ -659,7 +660,9 @@ th,td{padding:8px}
                  gruposEnsino: Object.keys(gEnsino).sort().map(t => [t, gEnsino[t]]), dup, inc, exc, podio, destaqueOrient, premiacoes, diag,
                  inst: destaqueOrient ? contaProjs(base, p => p.inst ? [p.inst] : []) : conta(base, p => p.inst ? [p.inst] : []), orient: destaqueOrient ? contaOrient(base) : conta(geral, p => p.orient),
                  avals: linhas.map(l => ({ aval: l.aval, proj: l.proj, aba: l.aba, dia: l.dia })),
-                 projs: Object.entries(porProjeto).map(([ch, p]) => ({ proj: p.equipe, cat: p.cat, inst: ((ext[chaveProj(p.equipe)] || ext[ch] || {}).inst) || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] })) };
+                 projs: Object.entries(porProjeto).map(([ch, p]) => { const e = ext[chaveProj(p.equipe)] || ext[ch] || {};
+                     return { proj: p.equipe, cat: p.cat, inst: e.inst || '', mod: e.mod || '', eixo: e.eixo || '', autor: e.autor || [], orient: e.orient || [],
+                              nivel: (p.n.find(x => x.nivelEnsino) || {}).nivelEnsino || '', qtd: p.n.length, avals: [...new Set(p.n.map(x => x.aval))] }; }) };
     }
  
     // ===== FECEG: planilha de distribuição (Stand e avaliadores atribuídos a cada projeto) =====
@@ -1338,6 +1341,108 @@ th,td{padding:8px}
         return t + linhaVerMais(id, dados.length, 7) + `</tbody></table>`;
     }
  
+    // ===== Exportação para mala direta de certificados (Excel com 3 abas) =====
+    // Só entram projetos/pessoas que constam nota (projetos com ao menos 1 avaliação lançada; avaliadores com avaliação lançada).
+    function limpaNomeOrient(s) {
+        const t = String(s).replace(/\b(?:professor(?:a)?|profa|prof|orientador(?:a)?|mestre|mestra|doutor(?:a)?|me|ms|msc|dr|dra|esp|ma(?=\.))\b[ªº]?\.?:?/gi, ' ').replace(/\s+/g, ' ').replace(/^[\s:.\-]+/, '').trim();
+        return t || String(s).trim();
+    }
+    const chavePessoaX = n => chaveNome(n).replace(/\b(?:de|da|do|das|dos|e)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    // Cada célula pode trazer mais de um nome (quebra de linha, ; , ou " e "); remove repetidos
+    function nomesLista(arr, orient) {
+        const r = [], vistos = new Set();
+        (arr || []).flatMap(x => String(x).split(/[\n;,]+|\s+e\s+/i)).map(x => (orient ? limpaNomeOrient(x) : x).trim()).filter(Boolean).forEach(n => {
+            const c = chavePessoaX(n);
+            if (c && !vistos.has(c)) { vistos.add(c); r.push(n); }
+        });
+        return r;
+    }
+
+    function exportarMalaDireta() {
+        const k = document.getElementById('nuc-sel').value, d = dadosGlobais[k], n = NUC[k];
+        const MED = { 1: 'Ouro', 2: 'Prata', 3: 'Bronze', 0: 'Especial' };
+        const part = [], venc = [], func = [];
+        let semNome = 0;
+
+        // ---- Participantes: autores dos projetos com nota ----
+        if (n.proj) {
+            (d.projs || []).filter(p => p.qtd > 0).forEach(p => {
+                const autores = nomesLista(p.autor, false), orient = nomesLista(p.orient, true);
+                const base = { 'Projeto': p.proj, 'Instituição': p.inst, 'Modalidade/Categoria': p.mod || p.cat, 'Eixo': p.eixo, 'Nível de Ensino': p.nivel, 'Orientador(es)': orient.join(' / '), 'Nº de avaliações': p.qtd };
+                if (!autores.length) { semNome++; part.push(Object.assign({ 'Nome': '' }, base)); }
+                autores.forEach(nome => part.push(Object.assign({ 'Nome': nome }, base)));
+            });
+        } else {
+            (d.geral || []).filter(p => p.total > 0).forEach(p => { semNome++; part.push({ 'Nome': '', 'Projeto': p.equipe, 'Instituição': '', 'Modalidade/Categoria': '', 'Eixo': '', 'Nível de Ensino': '', 'Orientador(es)': '', 'Nº de avaliações': [p.a1, p.a2, p.a3].filter(Boolean).length }); });
+        }
+        part.sort((a, b) => String(a.Nome || '~').localeCompare(String(b.Nome || '~')) || a.Projeto.localeCompare(b.Projeto));
+
+        // ---- Vencedores e premiados: uma linha por pessoa por projeto premiado ----
+        let premiados = [];
+        if (d.medalhas && d.medalhas.projetos) premiados = d.medalhas.projetos;
+        else {
+            const mapa = new Map();
+            const add = (p, rot, pos) => {
+                const ch = norm(p.equipe);
+                if (!mapa.has(ch)) mapa.set(ch, { equipe: p.equipe, inst: p.inst || '', premios: [], autores: nomesLista(p.autor, false), orientadores: nomesLista(p.orient, true), total: p.total, pos: 0 });
+                const e = mapa.get(ch);
+                e.premios.push(rot); e.pos = e.pos ? Math.min(e.pos, pos) : pos;
+            };
+            if (n.proj) (d.grupos || []).forEach(([t, l]) => l.slice(0, 3).forEach((p, i) => add(p, `${i + 1}º lugar — ${t}`, i + 1)));
+            else (d.geral || []).filter(p => p.total > 0).slice(0, 3).forEach((p, i) => add(p, `${i + 1}º lugar`, i + 1));
+            premiados = [...mapa.values()];
+        }
+        premiados.forEach(p => {
+            const base = { 'Projeto': p.equipe, 'Instituição': p.inst, 'Prêmio(s)': p.premios.join(' + '), 'Medalha': MED[p.pos || 0], 'Nota total': Number(p.total.toFixed(1)) };
+            p.autores.forEach(nome => venc.push(Object.assign({ 'Nome': nome, 'Função': 'Participante' }, base)));
+            p.orientadores.forEach(nome => venc.push(Object.assign({ 'Nome': nome, 'Função': 'Orientador(a)' }, base)));
+            if (!p.autores.length && !p.orientadores.length) venc.push(Object.assign({ 'Nome': '', 'Função': '' }, base));
+        });
+        venc.sort((a, b) => ({ Ouro: 1, Prata: 2, Bronze: 3, Especial: 4 }[a.Medalha] - { Ouro: 1, Prata: 2, Bronze: 3, Especial: 4 }[b.Medalha]) || String(a.Nome || '~').localeCompare(String(b.Nome || '~')));
+
+        // ---- Orientadores (projetos com nota) e Avaliadores (com avaliação lançada) ----
+        const mo = new Map(), ma = new Map();
+        if (n.proj) {
+            (d.projs || []).filter(p => p.qtd > 0).forEach(p => nomesLista(p.orient, true).forEach(nome => {
+                const c = chavePessoaX(nome);
+                const e = mo.get(c) || { nome, projs: [], insts: new Set() };
+                e.projs.push(p.proj); if (p.inst) e.insts.add(p.inst); mo.set(c, e);
+            }));
+            (d.avals || []).filter(l => l.aval && l.aval !== 'Desconhecido').forEach(l => {
+                const c = chavePessoaX(l.aval);
+                const e = ma.get(c) || { nome: l.aval, projs: new Set(), qtd: 0 };
+                e.projs.add(l.proj); e.qtd++; ma.set(c, e);
+            });
+        } else {
+            (d.geral || []).forEach(p => [[p.b1, p.a1], [p.b2, p.a2], [p.b3, p.a3]].filter(([b, a]) => a && b > 0).forEach(([b, a]) => {
+                const c = chavePessoaX(a);
+                const e = ma.get(c) || { nome: a, projs: new Set(), qtd: 0 };
+                e.projs.add(p.equipe); e.qtd++; ma.set(c, e);
+            }));
+        }
+        [...mo.values()].sort((a, b) => a.nome.localeCompare(b.nome)).forEach(e => func.push({ 'Nome': e.nome, 'Função': 'Orientador(a)', 'Instituição': [...e.insts].join(' / '), 'Projetos': e.projs.join(' | '), 'Qtd. de projetos': e.projs.length, 'Qtd. de avaliações': '' }));
+        [...ma.values()].sort((a, b) => a.nome.localeCompare(b.nome)).forEach(e => func.push({ 'Nome': e.nome, 'Função': 'Avaliador(a)', 'Instituição': '', 'Projetos': [...e.projs].join(' | '), 'Qtd. de projetos': e.projs.size, 'Qtd. de avaliações': e.qtd }));
+
+        if (!part.length && !venc.length && !func.length) { alert('Não há dados com nota para exportar. Sincronize os dados primeiro.'); return; }
+
+        const colsPart = ['Nome', 'Projeto', 'Instituição', 'Modalidade/Categoria', 'Eixo', 'Nível de Ensino', 'Orientador(es)', 'Nº de avaliações'];
+        const colsVenc = ['Nome', 'Função', 'Projeto', 'Instituição', 'Prêmio(s)', 'Medalha', 'Nota total'];
+        const colsFunc = ['Nome', 'Função', 'Instituição', 'Projetos', 'Qtd. de projetos', 'Qtd. de avaliações'];
+        const aba = (cols, rows) => {
+            const ws = XLSX.utils.aoa_to_sheet([cols].concat(rows.map(r => cols.map(c => r[c] === undefined || r[c] === null ? '' : r[c]))));
+            ws['!cols'] = cols.map(c => ({ wch: Math.min(60, rows.reduce((m, r) => Math.max(m, String(r[c] == null ? '' : r[c]).length), c.length) + 2) }));
+            return ws;
+        };
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, aba(colsPart, part), 'Participantes');
+        XLSX.utils.book_append_sheet(wb, aba(colsVenc, venc), 'Vencedores e Premiados');
+        XLSX.utils.book_append_sheet(wb, aba(colsFunc, func), 'Orientadores e Avaliadores');
+        XLSX.writeFile(wb, `MalaDireta_${k.toUpperCase()}_${hojeISO()}.xlsx`);
+
+        document.getElementById('sync-status').innerHTML = `📥 Excel gerado (${esc(n.nome)}): ${part.length} participante(s), ${venc.length} linha(s) de premiados, ${func.length} orientador(es)/avaliador(es).`;
+        if (semNome) alert(`Atenção: ${semNome} projeto(s) ficaram sem nome de participante. ${n.proj ? 'Confira se o link de dados extras (autores) está carregado e se os títulos batem com os da planilha de avaliações.' : 'Esta planilha não traz nomes de participantes, só o nome da equipe.'}`);
+    }
+
     function limparDados() {
         if (!confirm("Deseja interromper a sincronização ativa e zerar o painel?")) return;
         if (intervaloSync) clearInterval(intervaloSync);
